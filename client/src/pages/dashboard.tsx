@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Activity, 
@@ -33,6 +33,7 @@ interface Study {
   payout: number;
   duration: string;
   studyType: string;
+  studyFormat: string | null;
   matchScore: number | null;
   postedAt: string | null;
   link: string | null;
@@ -80,7 +81,6 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [newEmail, setNewEmail] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Fetch studies
   const { data: studies = [] } = useQuery<Study[]>({
@@ -190,12 +190,7 @@ export default function Dashboard() {
     },
   });
 
-  // Auto-scroll logs
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs]);
+  // Logs are already ordered newest first from API, no need to scroll to bottom
 
   const handleAddEmail = (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,9 +201,6 @@ export default function Dashboard() {
 
   const isActive = settings?.isRunning ?? false;
   const checkInterval = settings?.checkIntervalMinutes ?? 10;
-
-  // Reverse logs for display (newest at bottom)
-  const displayLogs = [...logs].reverse();
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6 md:p-8 font-sans selection:bg-primary/20 selection:text-primary">
@@ -365,12 +357,11 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent className="flex-1 p-0 relative">
                 <div 
-                  ref={scrollRef}
                   className="absolute inset-0 overflow-y-auto p-4 font-mono text-xs space-y-1.5 scrollbar-hide"
                   data-testid="container-logs"
                 >
                   <AnimatePresence initial={false}>
-                    {displayLogs.map((log) => (
+                    {logs.map((log) => (
                       <motion.div 
                         key={log.id}
                         initial={{ opacity: 0, x: -10 }}
@@ -394,7 +385,7 @@ export default function Dashboard() {
                       </motion.div>
                     ))}
                   </AnimatePresence>
-                  {displayLogs.length === 0 && (
+                  {logs.length === 0 && (
                     <div className="text-muted-foreground italic opacity-50">Waiting for system start...</div>
                   )}
                 </div>
@@ -434,55 +425,57 @@ export default function Dashboard() {
                             data-testid={`card-study-${study.id}`}
                           >
                             <Card className="group border-border/40 hover:border-primary/50 transition-colors bg-accent/10">
-                              <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                                      {study.title}
-                                    </h3>
-                                    {study.matchScore && study.matchScore > 90 && (
-                                      <Badge className="bg-primary/20 text-primary hover:bg-primary/30 border-0 text-[10px] px-1.5 py-0">
-                                        High Match
-                                      </Badge>
-                                    )}
-                                    {study.notified && (
-                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                        Notified
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
-                                    <span className="flex items-center gap-1.5">
-                                      <Clock className="w-3 h-3" /> {study.duration}
-                                    </span>
-                                    <span className="flex items-center gap-1.5">
-                                      <Activity className="w-3 h-3" /> {study.studyType}
-                                    </span>
-                                    {study.matchScore && (
-                                      <span>Match: {study.matchScore}%</span>
-                                    )}
-                                  </div>
-                                  {study.postedAt && (
-                                    <p className="text-[10px] text-muted-foreground">
-                                      Posted: {new Date(study.postedAt).toLocaleString()}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between sm:justify-end gap-4">
-                                  <div className="text-right">
-                                    <div className="text-xl font-bold text-emerald-400">
-                                      ${study.payout}
+                              <CardContent className="p-4 space-y-2">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <a 
+                                        href={study.link || '#'} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="font-semibold text-primary hover:underline"
+                                      >
+                                        {study.title}
+                                      </a>
+                                      {study.notified && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                                          Notified
+                                        </Badge>
+                                      )}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Incentive</div>
+                                    <div className="flex items-center flex-wrap gap-1 text-xs text-muted-foreground mt-1">
+                                      <span className="font-bold text-emerald-500">${study.payout.toFixed(2)}</span>
+                                      {study.postedAt && (
+                                        <>
+                                          <span className="text-muted-foreground/50">·</span>
+                                          <span>{study.postedAt}</span>
+                                        </>
+                                      )}
+                                      <span className="text-muted-foreground/50">·</span>
+                                      <span>{study.duration}</span>
+                                      {study.studyFormat && (
+                                        <>
+                                          <span className="text-muted-foreground/50">·</span>
+                                          <span>{study.studyFormat}</span>
+                                        </>
+                                      )}
+                                      <span className="text-muted-foreground/50">·</span>
+                                      <span>{study.studyType}</span>
+                                    </div>
                                   </div>
                                   {study.link && (
-                                    <a href={study.link} target="_blank" rel="noopener noreferrer">
+                                    <a href={study.link} target="_blank" rel="noopener noreferrer" className="shrink-0">
                                       <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                                         <ExternalLink className="w-4 h-4" />
                                       </Button>
                                     </a>
                                   )}
                                 </div>
+                                {study.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
+                                    {study.description}
+                                  </p>
+                                )}
                               </CardContent>
                             </Card>
                           </motion.div>

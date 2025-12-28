@@ -11,6 +11,7 @@ export const studies = pgTable("studies", {
   payout: integer("payout").notNull(),
   duration: text("duration").notNull(),
   studyType: text("study_type").notNull(),
+  studyFormat: text("study_format"),
   matchScore: integer("match_score"),
   postedAt: text("posted_at"),
   link: text("link"),

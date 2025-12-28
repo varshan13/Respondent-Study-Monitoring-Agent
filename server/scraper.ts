@@ -9,6 +9,7 @@ export interface ScrapedStudy {
   payout: number;
   duration: string;
   studyType: string;
+  studyFormat?: string;
   matchScore?: number;
   postedAt?: string;
   link?: string;
@@ -61,6 +62,7 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
         payout: number;
         duration: string;
         studyType: string;
+        studyFormat: string;
         postedAt: string;
         link: string;
         description: string;
@@ -104,6 +106,12 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
         const isInPerson = cardText.toLowerCase().includes('in-person') || cardText.toLowerCase().includes('in person');
         const studyType = isRemote ? 'Remote' : (isInPerson ? 'In-Person' : 'Unknown');
         
+        // Parse study format - look for One-on-One, Focus Group, Survey, etc.
+        const isOneOnOne = cardText.toLowerCase().includes('one-on-one') || cardText.toLowerCase().includes('1-on-1');
+        const isFocusGroup = cardText.toLowerCase().includes('focus group');
+        const isSurvey = cardText.toLowerCase().includes('survey');
+        const studyFormat = isOneOnOne ? 'One-on-One' : (isFocusGroup ? 'Focus Group' : (isSurvey ? 'Survey' : ''));
+        
         // Get description - find paragraph text that's not the title
         const descElement = card?.querySelector('p, [class*="description"]');
         const description = descElement?.textContent?.trim().substring(0, 500) || '';
@@ -116,6 +124,7 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
             payout,
             duration,
             studyType,
+            studyFormat,
             postedAt,
             link: `https://app.respondent.io${href}`,
             description
