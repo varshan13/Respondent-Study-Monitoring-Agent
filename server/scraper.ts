@@ -71,10 +71,11 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
       // Find all project links
       const projectLinks = document.querySelectorAll('a[href*="/respondents/v2/projects/view/"]');
       
-      projectLinks.forEach(link => {
+      for (let linkIdx = 0; linkIdx < projectLinks.length; linkIdx++) {
+        const link = projectLinks[linkIdx];
         const href = link.getAttribute('href') || '';
         const idMatch = href.match(/\/view\/([a-f0-9]+)/);
-        if (!idMatch) return;
+        if (!idMatch) continue;
         
         const externalId = idMatch[1];
         const title = link.textContent?.trim() || 'Unknown Study';
@@ -89,6 +90,38 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
         // Extract text content from the card
         const cardText = card?.textContent || '';
         
+        // Normalize card text - handle special Unicode hyphens (non-breaking hyphens, en-dashes, etc.)
+        const normalizedCardText = cardText
+          .normalize('NFKD')
+          .replace(/[\u2010-\u2015\u2212\u00AD]/g, '-')
+          .toLowerCase()
+          .trim();
+        
+        // Try to extract metadata tokens from specific metadata elements
+        // Look for spans that contain the dot-separated metadata (e.g., "$500.00 · 15 hours ago · 60 min · One-on-One · In-person")
+        const metaTokens: string[] = [];
+        const metaElements = card?.querySelectorAll('span, [class*="meta"], [class*="badge"], [class*="tag"], [class*="chip"]');
+        if (metaElements) {
+          for (let i = 0; i < metaElements.length; i++) {
+            const el = metaElements[i];
+            const text = el.textContent?.trim() || '';
+            if (text) {
+              // Split by various bullet/dot separators and add each token
+              const parts = text.split(/[·•|,]/);
+              for (let j = 0; j < parts.length; j++) {
+                const normalized = parts[j]
+                  .normalize('NFKD')
+                  .replace(/[\u2010-\u2015\u2212\u00AD]/g, '-')
+                  .toLowerCase()
+                  .trim();
+                if (normalized.length > 0 && normalized.length < 50) {
+                  metaTokens.push(normalized);
+                }
+              }
+            }
+          }
+        }
+        
         // Parse payout - look for $XX pattern
         const payoutMatch = cardText.match(/\$(\d+(?:\.\d{2})?)/);
         const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1])) : 0;
@@ -102,22 +135,52 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
         const postedAt = postedMatch ? postedMatch[1] : '';
         
         // Parse study type - look for Remote/In-person
-        const isRemote = cardText.toLowerCase().includes('remote');
-        const isInPerson = cardText.toLowerCase().includes('in-person') || cardText.toLowerCase().includes('in person');
+        let hasRemoteToken = false;
+        let hasInPersonToken = false;
+        for (let k = 0; k < metaTokens.length; k++) {
+          if (metaTokens[k] === 'remote') hasRemoteToken = true;
+          if (metaTokens[k] === 'in-person' || metaTokens[k] === 'in person') hasInPersonToken = true;
+        }
+        const isRemote = normalizedCardText.includes('remote') || hasRemoteToken;
+        const isInPerson = normalizedCardText.includes('in-person') || normalizedCardText.includes('in person') || hasInPersonToken;
         const studyType = isRemote ? 'Remote' : (isInPerson ? 'In-Person' : 'Unknown');
         
-        // Parse study format - look for One-on-One, Focus Group, Survey, etc.
-        const isOneOnOne = cardText.toLowerCase().includes('one-on-one') || cardText.toLowerCase().includes('1-on-1');
-        const isFocusGroup = cardText.toLowerCase().includes('focus group');
-        const isSurvey = cardText.toLowerCase().includes('survey');
-        const studyFormat = isOneOnOne ? 'One-on-One' : (isFocusGroup ? 'Focus Group' : (isSurvey ? 'Survey' : ''));
+        // Parse study format - look for One-on-One, Focus Group, Survey, Unmoderated, etc.
+        // Combine all text for checking
+        const allText = normalizedCardText + ' ' + metaTokens.join(' ');
+        
+        let studyFormat = '';
+        if (allText.includes('one-on-one') || allText.includes('1-on-1') || allText.includes('1:1')) {
+          studyFormat = 'One-on-One';
+        } else if (allText.includes('unmoderated')) {
+          studyFormat = 'Unmoderated';
+        } else if (allText.includes('moderated') && !allText.includes('unmoderated')) {
+          studyFormat = 'Moderated';
+        } else if (allText.includes('focus group')) {
+          studyFormat = 'Focus Group';
+        } else if (allText.includes('survey') && !allText.includes('video survey')) {
+          studyFormat = 'Survey';
+        } else if (allText.includes('interview')) {
+          studyFormat = 'Interview';
+        } else if (allText.includes('diary') || allText.includes('journal')) {
+          studyFormat = 'Diary Study';
+        } else if (allText.includes('usability') || allText.includes('ux test')) {
+          studyFormat = 'Usability Test';
+        }
         
         // Get description - find paragraph text that's not the title
         const descElement = card?.querySelector('p, [class*="description"]');
         const description = descElement?.textContent?.trim().substring(0, 500) || '';
         
-        // Avoid duplicates
-        if (!results.some(r => r.externalId === externalId)) {
+        // Avoid duplicates - check if externalId already exists
+        let isDuplicate = false;
+        for (let k = 0; k < results.length; k++) {
+          if (results[k].externalId === externalId) {
+            isDuplicate = true;
+            break;
+          }
+        }
+        if (!isDuplicate) {
           results.push({
             externalId,
             title,
@@ -130,7 +193,7 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
             description
           });
         }
-      });
+      }
       
       return results;
     });
