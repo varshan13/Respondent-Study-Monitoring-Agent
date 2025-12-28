@@ -36,9 +36,11 @@ async function getCredentials() {
 // Access tokens expire, so a new client must be created each time.
 export async function getResendClient() {
   const { apiKey, fromEmail } = await getCredentials();
+  // Always use Resend's default domain since custom domains require verification
+  // The fromEmail from settings may be unverified (e.g., yahoo.com, gmail.com)
   return {
     client: new Resend(apiKey),
-    fromEmail: fromEmail || 'onboarding@resend.dev'
+    fromEmail: 'Respondent Monitor <onboarding@resend.dev>'
   };
 }
 
@@ -96,18 +98,26 @@ export async function sendStudyNotification(emails: string[], studies: Study[]):
       </html>
     `;
 
+    console.log(`[Email] Sending from: ${fromEmail}`);
+    console.log(`[Email] Recipients: ${emails.join(', ')}`);
+    
     for (const email of emails) {
-      await client.emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`,
-        html: html,
-      });
+      try {
+        const result = await client.emails.send({
+          from: fromEmail,
+          to: email,
+          subject: `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`,
+          html: html,
+        });
+        console.log(`[Email] Sent to ${email}:`, JSON.stringify(result));
+      } catch (emailError: any) {
+        console.error(`[Email] Failed to send to ${email}:`, emailError?.message || emailError);
+      }
     }
     
     return true;
-  } catch (error) {
-    console.error('Failed to send email notification:', error);
+  } catch (error: any) {
+    console.error('[Email] Failed to send notifications:', error?.message || error);
     return false;
   }
 }
