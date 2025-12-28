@@ -77,10 +77,14 @@ Key backend components:
 3. **Multiple Recipients**: Support for adding/removing multiple email addresses
 4. **Activity Logging**: Real-time logs visible in the dashboard
 5. **Manual Trigger**: "Check Now" button for immediate checks
-6. **Study Tracking**: Stores all found studies with metadata including:
+6. **Study Sync**: Dashboard only shows studies currently on the webpage; stale studies are automatically removed
+7. **Webpage Order**: Studies display in the same order as the Respondent.io browse page (newest first)
+8. **Study Tracking**: Stores all found studies with metadata including:
    - Title, payout, duration
    - Study type (Remote/In-Person)
+   - Study format (One-on-One, Unmoderated, Focus Group, Survey, etc.)
    - Posted time (e.g., "2 days ago")
+   - Page order for proper sorting
    - Direct link to apply
    - Description
 
