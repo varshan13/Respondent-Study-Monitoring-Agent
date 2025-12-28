@@ -1,6 +1,7 @@
 // Background agent that monitors Respondent.io for new studies
 import { storage } from "./storage";
 import { sendStudyNotification } from "./email";
+import { sendDiscordNotification } from "./discord";
 import { scrapeRespondentStudies, generateDemoStudies } from "./scraper";
 import type { Study } from "@shared/schema";
 
@@ -99,6 +100,17 @@ export async function runCheck(): Promise<Study[]> {
       }
     } else {
       await addLog("No active email recipients configured", "warning");
+    }
+    
+    // Send Discord notifications
+    if (process.env.DISCORD_WEBHOOK_URL) {
+      await addLog("Sending Discord notification...", "info");
+      const discordSuccess = await sendDiscordNotification(newStudies);
+      if (discordSuccess) {
+        await addLog("Discord notification sent successfully", "success");
+      } else {
+        await addLog("Failed to send Discord notification", "error");
+      }
     }
     
     return newStudies;
