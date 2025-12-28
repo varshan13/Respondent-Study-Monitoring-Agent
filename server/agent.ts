@@ -20,17 +20,11 @@ export async function runCheck(): Promise<Study[]> {
   await addLog("Initiating scheduled check...", "info");
   
   try {
-    // Try to scrape real studies
-    let scrapedStudies = await scrapeRespondentStudies();
-    
-    // If no real studies (auth required), use demo mode
-    if (scrapedStudies.length === 0) {
-      await addLog("Auth required for live data - using demo mode", "warning");
-      scrapedStudies = generateDemoStudies();
-    }
+    // Scrape real studies from Respondent.io public page
+    const scrapedStudies = await scrapeRespondentStudies();
     
     if (scrapedStudies.length === 0) {
-      await addLog("No new studies found in this check", "info");
+      await addLog("No studies found on Respondent.io page", "info");
       return [];
     }
     

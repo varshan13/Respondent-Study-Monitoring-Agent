@@ -1,8 +1,5 @@
-// Web scraper for Respondent.io
-// Note: This requires authentication to access the actual studies
-// For now, we'll fetch what's publicly accessible
-
-import type { InsertStudy } from "@shared/schema";
+// Web scraper for Respondent.io public studies page using Playwright
+import { chromium } from 'playwright';
 
 const TARGET_URL = "https://app.respondent.io/respondents/v2/projects/browse";
 
@@ -18,91 +15,132 @@ export interface ScrapedStudy {
   description?: string;
 }
 
-// Parse payout from string like "$150" or "Up to $200"
+// Parse payout from string like "$120.00" or "$200.00"
 function parsePayout(payoutStr: string): number {
-  const matches = payoutStr.match(/\$(\d+)/g);
-  if (matches && matches.length > 0) {
-    // Get the highest value if there are multiple
-    const values = matches.map(m => parseInt(m.replace('$', '')));
-    return Math.max(...values);
+  const match = payoutStr.match(/\$?([\d,]+(?:\.\d{2})?)/);
+  if (match) {
+    return Math.round(parseFloat(match[1].replace(',', '')));
   }
   return 0;
 }
 
-// Parse duration from string like "30 min" or "1 hour"
-function parseDuration(durationStr: string): string {
-  return durationStr.trim();
-}
-
 export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
+  let browser;
   try {
-    // Respondent.io is a React SPA that requires authentication
-    // The studies are loaded via API calls after login
-    // Without authentication, we cannot access the actual studies
+    console.log('Launching headless browser for Respondent.io...');
     
-    // For this implementation, we'll need the user to provide their session
-    // OR we can try to fetch the public API if available
-    
-    // Let's try fetching the page to see what's available
-    const response = await fetch(TARGET_URL, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      }
+    // Launch browser with system chromium
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
-
-    if (!response.ok) {
-      console.log(`Respondent.io returned status ${response.status}`);
-      return [];
-    }
-
-    const html = await response.text();
     
-    // Check if we got a login page (which is expected without auth)
-    if (html.includes('Sign in') || html.includes('login')) {
-      console.log('Respondent.io requires authentication to view studies');
-      // Return empty - the user would need to provide session cookies
-      return [];
-    }
-
-    // If we somehow got the actual page, try to parse it
-    // This is a basic parser - in reality the page is rendered by JavaScript
-    const studies: ScrapedStudy[] = [];
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
     
-    // Look for any JSON data embedded in the page
-    const scriptMatches = html.match(/<script[^>]*>window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})<\/script>/);
-    if (scriptMatches) {
-      try {
-        const data = JSON.parse(scriptMatches[1]);
-        if (data.projects) {
-          for (const project of data.projects) {
-            studies.push({
-              externalId: project.id || String(Date.now()),
-              title: project.title || 'Unknown Study',
-              payout: project.incentive || 0,
-              duration: project.duration || 'Unknown',
-              studyType: project.type || 'Remote',
-              matchScore: project.matchScore,
-              postedAt: project.createdAt,
-              link: `https://app.respondent.io/respondents/v2/projects/${project.id}`,
-              description: project.description,
-            });
-          }
+    const page = await context.newPage();
+    
+    console.log('Navigating to Respondent.io browse page...');
+    await page.goto(TARGET_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    
+    // Wait for project cards to load
+    await page.waitForSelector('a[href*="/respondents/v2/projects/view/"]', { timeout: 15000 }).catch(() => {
+      console.log('No project links found, page might be loading differently');
+    });
+    
+    // Give extra time for dynamic content
+    await page.waitForTimeout(2000);
+    
+    // Extract study data from the page
+    const studies = await page.evaluate(() => {
+      const results: Array<{
+        externalId: string;
+        title: string;
+        payout: number;
+        duration: string;
+        studyType: string;
+        postedAt: string;
+        link: string;
+        description: string;
+      }> = [];
+      
+      // Find all project links
+      const projectLinks = document.querySelectorAll('a[href*="/respondents/v2/projects/view/"]');
+      
+      projectLinks.forEach(link => {
+        const href = link.getAttribute('href') || '';
+        const idMatch = href.match(/\/view\/([a-f0-9]+)/);
+        if (!idMatch) return;
+        
+        const externalId = idMatch[1];
+        const title = link.textContent?.trim() || 'Unknown Study';
+        
+        // Try to find the parent card element
+        let card = link.closest('.card, .project-card, [class*="project"], [class*="Card"]') || link.parentElement?.parentElement?.parentElement;
+        
+        if (!card) {
+          card = link.parentElement;
         }
-      } catch (e) {
-        console.log('Failed to parse embedded JSON');
-      }
-    }
-
+        
+        // Extract text content from the card
+        const cardText = card?.textContent || '';
+        
+        // Parse payout - look for $XX pattern
+        const payoutMatch = cardText.match(/\$(\d+(?:\.\d{2})?)/);
+        const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1])) : 0;
+        
+        // Parse duration - look for "XX min" or "X hour" pattern
+        const durationMatch = cardText.match(/(\d+\s*(?:min|hour|hr)s?)/i);
+        const duration = durationMatch ? durationMatch[1] : 'Unknown';
+        
+        // Parse posted time - look for "X hours ago" or "X days ago"
+        const postedMatch = cardText.match(/(\d+\s*(?:hour|day|minute|week)s?\s*ago|a\s+(?:hour|day|minute|week)\s+ago)/i);
+        const postedAt = postedMatch ? postedMatch[1] : '';
+        
+        // Parse study type - look for Remote/In-person
+        const isRemote = cardText.toLowerCase().includes('remote');
+        const isInPerson = cardText.toLowerCase().includes('in-person') || cardText.toLowerCase().includes('in person');
+        const studyType = isRemote ? 'Remote' : (isInPerson ? 'In-Person' : 'Unknown');
+        
+        // Get description - find paragraph text that's not the title
+        const descElement = card?.querySelector('p, [class*="description"]');
+        const description = descElement?.textContent?.trim().substring(0, 500) || '';
+        
+        // Avoid duplicates
+        if (!results.some(r => r.externalId === externalId)) {
+          results.push({
+            externalId,
+            title,
+            payout,
+            duration,
+            studyType,
+            postedAt,
+            link: `https://app.respondent.io${href}`,
+            description
+          });
+        }
+      });
+      
+      return results;
+    });
+    
+    console.log(`Scraped ${studies.length} studies from Respondent.io`);
+    
+    await browser.close();
+    
     return studies;
   } catch (error) {
     console.error('Error scraping Respondent.io:', error);
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
     return [];
   }
 }
 
-// Alternative: Generate demo studies for testing
+// Alternative: Generate demo studies for testing (only used as fallback)
 export function generateDemoStudies(): ScrapedStudy[] {
   const topics = [
     { title: "Software Developer Experience Research", payout: 150, duration: "45 min" },
