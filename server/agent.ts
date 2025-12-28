@@ -30,7 +30,16 @@ export async function runCheck(): Promise<Study[]> {
     
     await addLog(`Found ${scrapedStudies.length} potential studies`, "info");
     
-    // Check which studies are new (not already in database)
+    // Get all external IDs from the current scrape
+    const currentExternalIds = scrapedStudies.map(s => s.externalId);
+    
+    // Remove stale studies that are no longer on the page
+    const removedCount = await storage.syncStudies(currentExternalIds);
+    if (removedCount > 0) {
+      await addLog(`Removed ${removedCount} stale studies no longer on the page`, "info");
+    }
+    
+    // Check which studies are new and update/insert all studies
     const newStudies: Study[] = [];
     
     for (const scraped of scrapedStudies) {
@@ -43,14 +52,27 @@ export async function runCheck(): Promise<Study[]> {
           payout: scraped.payout,
           duration: scraped.duration,
           studyType: scraped.studyType,
+          studyFormat: scraped.studyFormat || null,
           matchScore: scraped.matchScore || null,
           postedAt: scraped.postedAt || null,
           link: scraped.link || null,
           description: scraped.description || null,
+          pageOrder: scraped.pageOrder,
           notified: false,
         });
         newStudies.push(saved);
         await addLog(`New study: "${saved.title}" ($${saved.payout})`, "success");
+      } else {
+        // Update existing study with latest data (including page order)
+        await storage.updateStudy(scraped.externalId, {
+          title: scraped.title,
+          payout: scraped.payout,
+          duration: scraped.duration,
+          studyType: scraped.studyType,
+          studyFormat: scraped.studyFormat || null,
+          postedAt: scraped.postedAt || null,
+          pageOrder: scraped.pageOrder,
+        });
       }
     }
     

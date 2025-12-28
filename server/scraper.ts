@@ -14,6 +14,7 @@ export interface ScrapedStudy {
   postedAt?: string;
   link?: string;
   description?: string;
+  pageOrder: number;
 }
 
 // Parse payout from string like "$120.00" or "$200.00"
@@ -66,6 +67,7 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
         postedAt: string;
         link: string;
         description: string;
+        pageOrder: number;
       }> = [];
       
       // Find all project links
@@ -190,7 +192,8 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
             studyFormat,
             postedAt,
             link: `https://app.respondent.io${href}`,
-            description
+            description,
+            pageOrder: results.length
           });
         }
       }

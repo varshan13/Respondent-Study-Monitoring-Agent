@@ -116,7 +116,7 @@ export async function sendStudyNotification(emails: string[], studies: Study[]):
       </html>
     `;
 
-    const subject = `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`;
+    const subject = `${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`;
 
     console.log(`[Email] Sending to ${emails.length} recipient(s) via Gmail...`);
     

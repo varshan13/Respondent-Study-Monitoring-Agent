@@ -17,6 +17,7 @@ export const studies = pgTable("studies", {
   link: text("link"),
   description: text("description"),
   notified: boolean("notified").default(false),
+  pageOrder: integer("page_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
