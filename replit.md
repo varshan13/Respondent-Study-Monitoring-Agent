@@ -34,7 +34,7 @@ The frontend is a single-page application with a dashboard that displays:
 Key backend components:
 - `server/agent.ts`: Background monitoring agent that runs periodic checks
 - `server/scraper.ts`: Playwright-based web scraper for Respondent.io public browse page
-- `server/email.ts`: Email notifications via Resend integration
+- `server/email.ts`: Email notifications via Gmail integration (using user's personal Gmail account)
 - `server/storage.ts`: Database storage layer implementing the IStorage interface
 - `server/routes.ts`: API endpoint definitions
 - `server/db.ts`: PostgreSQL connection with Drizzle ORM
@@ -56,9 +56,10 @@ Key backend components:
 ## External Dependencies
 
 ### Email Service
-- **Resend**: Email delivery service accessed via Replit Connectors
-- Credentials retrieved dynamically from Replit's connector API
+- **Gmail**: Sends emails from user's personal Gmail account via Replit Connectors
+- OAuth credentials retrieved dynamically from Replit's connector API
 - Sends beautifully formatted HTML emails with study summaries
+- No domain verification required - sends directly from connected Gmail
 
 ### Web Scraping
 - **Playwright**: Headless browser automation for JavaScript-rendered pages

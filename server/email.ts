@@ -1,10 +1,14 @@
-// Email service using Resend integration
-import { Resend } from 'resend';
+// Email service using Gmail integration
+import { google } from 'googleapis';
 import type { Study } from '@shared/schema';
 
 let connectionSettings: any;
 
-async function getCredentials() {
+async function getAccessToken() {
+  if (connectionSettings && connectionSettings.settings.expires_at && new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
+    return connectionSettings.settings.access_token;
+  }
+  
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY 
     ? 'repl ' + process.env.REPL_IDENTITY 
@@ -17,7 +21,7 @@ async function getCredentials() {
   }
 
   connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
+    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
     {
       headers: {
         'Accept': 'application/json',
@@ -26,27 +30,41 @@ async function getCredentials() {
     }
   ).then(res => res.json()).then(data => data.items?.[0]);
 
-  if (!connectionSettings || (!connectionSettings.settings.api_key)) {
-    throw new Error('Resend not connected');
+  const accessToken = connectionSettings?.settings?.access_token || connectionSettings.settings?.oauth?.credentials?.access_token;
+
+  if (!connectionSettings || !accessToken) {
+    throw new Error('Gmail not connected');
   }
-  return { apiKey: connectionSettings.settings.api_key, fromEmail: connectionSettings.settings.from_email };
+  return accessToken;
 }
 
-// WARNING: Never cache this client.
-// Access tokens expire, so a new client must be created each time.
-export async function getResendClient() {
-  const { apiKey, fromEmail } = await getCredentials();
-  // Always use Resend's default domain since custom domains require verification
-  // The fromEmail from settings may be unverified (e.g., yahoo.com, gmail.com)
-  return {
-    client: new Resend(apiKey),
-    fromEmail: 'Respondent Monitor <onboarding@resend.dev>'
-  };
+async function getGmailClient() {
+  const accessToken = await getAccessToken();
+
+  const oauth2Client = new google.auth.OAuth2();
+  oauth2Client.setCredentials({
+    access_token: accessToken
+  });
+
+  return google.gmail({ version: 'v1', auth: oauth2Client });
+}
+
+function createEmailMessage(to: string, subject: string, html: string): string {
+  const message = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    html
+  ].join('\r\n');
+
+  return Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export async function sendStudyNotification(emails: string[], studies: Study[]): Promise<boolean> {
   try {
-    const { client, fromEmail } = await getResendClient();
+    const gmail = await getGmailClient();
     
     const studyList = studies.map(study => `
       <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -98,18 +116,20 @@ export async function sendStudyNotification(emails: string[], studies: Study[]):
       </html>
     `;
 
-    console.log(`[Email] Sending from: ${fromEmail}`);
-    console.log(`[Email] Recipients: ${emails.join(', ')}`);
+    const subject = `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`;
+
+    console.log(`[Email] Sending to ${emails.length} recipient(s) via Gmail...`);
     
     for (const email of emails) {
       try {
-        const result = await client.emails.send({
-          from: fromEmail,
-          to: email,
-          subject: `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found on Respondent.io`,
-          html: html,
+        const rawMessage = createEmailMessage(email, subject, html);
+        await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: rawMessage
+          }
         });
-        console.log(`[Email] Sent to ${email}:`, JSON.stringify(result));
+        console.log(`[Email] Sent to ${email} successfully`);
       } catch (emailError: any) {
         console.error(`[Email] Failed to send to ${email}:`, emailError?.message || emailError);
       }
