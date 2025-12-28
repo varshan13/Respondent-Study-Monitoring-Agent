@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Activity, 
   Search, 
   Mail, 
   Clock, 
-  CheckCircle2, 
-  AlertCircle, 
   Terminal,
   Play,
   Pause,
   Settings,
   Database,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  X,
+  Trash2,
+  RefreshCw
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -23,54 +26,169 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// Mock Data Types
 interface Study {
   id: string;
+  externalId: string;
   title: string;
   payout: number;
-  time: string;
-  type: "Remote" | "In-Person";
-  matchScore: number;
-  timestamp: Date;
+  duration: string;
+  studyType: string;
+  matchScore: number | null;
+  postedAt: string | null;
+  link: string | null;
+  description: string | null;
+  notified: boolean | null;
+  createdAt: string;
 }
 
-interface LogEntry {
+interface EmailRecipient {
   id: string;
-  timestamp: Date;
-  message: string;
-  type: "info" | "success" | "warning" | "error";
+  email: string;
+  active: boolean | null;
+  createdAt: string;
 }
 
-// Mock Studies Generator
-const generateMockStudy = (): Study => {
-  const topics = [
-    "Software Developer Experience",
-    "Cloud Infrastructure Usage",
-    "Consumer Banking Habits",
-    "AI Tool Adoption in Enterprise",
-    "Remote Work Challenges",
-    "E-commerce Shopping Preferences"
-  ];
-  
-  return {
-    id: Math.random().toString(36).substring(7),
-    title: topics[Math.floor(Math.random() * topics.length)],
-    payout: Math.floor(Math.random() * 200) + 50,
-    time: `${Math.floor(Math.random() * 45) + 15} mins`,
-    type: Math.random() > 0.7 ? "In-Person" : "Remote",
-    matchScore: Math.floor(Math.random() * 20) + 80,
-    timestamp: new Date()
-  };
-};
+interface CheckLog {
+  id: string;
+  message: string;
+  logType: string;
+  createdAt: string;
+}
+
+interface AgentSettings {
+  id: string;
+  checkIntervalMinutes: number | null;
+  isActive: boolean | null;
+  lastCheckAt: string | null;
+  isRunning: boolean;
+}
+
+async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`API error: ${response.statusText}`);
+  }
+  return response.json();
+}
 
 export default function Dashboard() {
-  const [isActive, setIsActive] = useState(true);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [foundStudies, setFoundStudies] = useState<Study[]>([]);
-  const [checkInterval, setCheckInterval] = useState(10); // in seconds for demo (simulating 10 mins)
-  const [emailEnabled, setEmailEnabled] = useState(true);
-  const [emailAddress, setEmailAddress] = useState("user@example.com");
+  const queryClient = useQueryClient();
+  const [newEmail, setNewEmail] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch studies
+  const { data: studies = [] } = useQuery<Study[]>({
+    queryKey: ['/api/studies'],
+    queryFn: () => apiRequest('/api/studies'),
+    refetchInterval: 5000,
+  });
+
+  // Fetch logs
+  const { data: logs = [] } = useQuery<CheckLog[]>({
+    queryKey: ['/api/logs'],
+    queryFn: () => apiRequest('/api/logs?limit=100'),
+    refetchInterval: 3000,
+  });
+
+  // Fetch email recipients
+  const { data: emails = [] } = useQuery<EmailRecipient[]>({
+    queryKey: ['/api/emails'],
+    queryFn: () => apiRequest('/api/emails'),
+  });
+
+  // Fetch agent settings
+  const { data: settings } = useQuery<AgentSettings>({
+    queryKey: ['/api/settings'],
+    queryFn: () => apiRequest('/api/settings'),
+    refetchInterval: 5000,
+  });
+
+  // Add email mutation
+  const addEmailMutation = useMutation({
+    mutationFn: (email: string) => apiRequest('/api/emails', {
+      method: 'POST',
+      body: JSON.stringify({ email, active: true }),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/emails'] });
+      setNewEmail("");
+      toast.success("Email added successfully");
+    },
+    onError: () => {
+      toast.error("Failed to add email. Make sure it's a valid email address.");
+    },
+  });
+
+  // Remove email mutation
+  const removeEmailMutation = useMutation({
+    mutationFn: (id: string) => apiRequest(`/api/emails/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/emails'] });
+      toast.success("Email removed");
+    },
+  });
+
+  // Toggle email mutation
+  const toggleEmailMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => 
+      apiRequest(`/api/emails/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/emails'] });
+    },
+  });
+
+  // Update settings mutation
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data: Partial<AgentSettings>) => 
+      apiRequest('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+    },
+  });
+
+  // Start agent mutation
+  const startAgentMutation = useMutation({
+    mutationFn: () => apiRequest('/api/agent/start', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+      toast.success("Agent started");
+    },
+  });
+
+  // Stop agent mutation
+  const stopAgentMutation = useMutation({
+    mutationFn: () => apiRequest('/api/agent/stop', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+      toast.success("Agent stopped");
+    },
+  });
+
+  // Manual check mutation
+  const manualCheckMutation = useMutation({
+    mutationFn: () => apiRequest('/api/check', { method: 'POST' }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/studies'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/logs'] });
+      if (data.newStudiesCount > 0) {
+        toast.success(`Found ${data.newStudiesCount} new study(ies)!`);
+      } else {
+        toast.info("No new studies found");
+      }
+    },
+  });
 
   // Auto-scroll logs
   useEffect(() => {
@@ -79,57 +197,18 @@ export default function Dashboard() {
     }
   }, [logs]);
 
-  // Simulation Logic
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (isActive) {
-      const addLog = (message: string, type: LogEntry["type"] = "info") => {
-        setLogs(prev => [...prev, {
-          id: Math.random().toString(36),
-          timestamp: new Date(),
-          message,
-          type
-        }].slice(-50)); // Keep last 50 logs
-      };
-
-      // Initial Start Log
-      addLog("Agent process started (PID: 8492)", "info");
-      addLog(`Monitoring target: https://app.respondent.io/respondents/v2/projects/browse`, "info");
-
-      interval = setInterval(() => {
-        // 1. Start Check
-        addLog("Initiating scheduled check...", "info");
-        
-        setTimeout(() => {
-          // 2. Simulate Request
-          addLog("GET /v2/projects/browse - 200 OK", "success");
-          
-          // 3. Randomly find new study
-          if (Math.random() > 0.6) {
-            const newStudy = generateMockStudy();
-            setFoundStudies(prev => [newStudy, ...prev]);
-            addLog(`New study found: "${newStudy.title}" ($${newStudy.payout})`, "success");
-            
-            if (emailEnabled) {
-              addLog(`Sending notification to ${emailAddress}...`, "warning");
-              toast.success("New Study Alert", {
-                description: `Email sent: Found "${newStudy.title}" paying $${newStudy.payout}`,
-                duration: 4000,
-              });
-            }
-          } else {
-            addLog("No new matching studies found.", "info");
-          }
-          
-          addLog(`Sleeping for ${checkInterval}m...`, "info");
-        }, 1500); // Network delay simulation
-
-      }, checkInterval * 1000);
+  const handleAddEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newEmail.trim()) {
+      addEmailMutation.mutate(newEmail.trim());
     }
+  };
 
-    return () => clearInterval(interval);
-  }, [isActive, checkInterval, emailEnabled, emailAddress]);
+  const isActive = settings?.isRunning ?? false;
+  const checkInterval = settings?.checkIntervalMinutes ?? 10;
+
+  // Reverse logs for display (newest at bottom)
+  const displayLogs = [...logs].reverse();
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6 md:p-8 font-sans selection:bg-primary/20 selection:text-primary">
@@ -138,30 +217,41 @@ export default function Dashboard() {
         {/* Header */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3" data-testid="text-title">
               <Database className="w-8 h-8 text-primary" />
               Respondent.io Agent
             </h1>
-            <p className="text-muted-foreground font-mono text-sm">v2.1.0 • Automated Study Monitor</p>
+            <p className="text-muted-foreground font-mono text-sm">v2.1.0 - Automated Study Monitor</p>
           </div>
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/50 border border-border">
-              <div className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-primary animate-pulse' : 'bg-red-500'}`} />
-              <span className="text-xs font-mono font-medium uppercase tracking-wider">
+              <div className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-primary animate-pulse' : 'bg-red-500'}`} data-testid="status-indicator" />
+              <span className="text-xs font-mono font-medium uppercase tracking-wider" data-testid="text-status">
                 {isActive ? 'System Online' : 'System Offline'}
               </span>
             </div>
             <Button 
               variant={isActive ? "destructive" : "default"} 
-              onClick={() => setIsActive(!isActive)}
+              onClick={() => isActive ? stopAgentMutation.mutate() : startAgentMutation.mutate()}
               className="w-32"
+              data-testid="button-toggle-agent"
+              disabled={startAgentMutation.isPending || stopAgentMutation.isPending}
             >
               {isActive ? (
                 <><Pause className="w-4 h-4 mr-2" /> Stop</>
               ) : (
                 <><Play className="w-4 h-4 mr-2" /> Start</>
               )}
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => manualCheckMutation.mutate()}
+              disabled={manualCheckMutation.isPending}
+              data-testid="button-manual-check"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${manualCheckMutation.isPending ? 'animate-spin' : ''}`} />
+              Check Now
             </Button>
           </div>
         </header>
@@ -180,29 +270,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="text-base">Email Notifications</Label>
-                      <p className="text-xs text-muted-foreground">Receive alerts for new studies</p>
-                    </div>
-                    <Switch 
-                      checked={emailEnabled}
-                      onCheckedChange={setEmailEnabled}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Notification Email</Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
-                      <Input 
-                        value={emailAddress}
-                        onChange={(e) => setEmailAddress(e.target.value)}
-                        className="pl-9 font-mono text-sm"
-                      />
-                    </div>
-                  </div>
-
+                  {/* Check Interval */}
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <Label>Check Interval</Label>
@@ -213,10 +281,75 @@ export default function Dashboard() {
                       min="1" 
                       max="60" 
                       value={checkInterval}
-                      onChange={(e) => setCheckInterval(parseInt(e.target.value))}
+                      onChange={(e) => updateSettingsMutation.mutate({ checkIntervalMinutes: parseInt(e.target.value) })}
                       className="w-full h-2 bg-accent rounded-lg appearance-none cursor-pointer accent-primary"
+                      data-testid="input-interval"
                     />
                     <p className="text-xs text-muted-foreground text-right">Recommended: 10 mins</p>
+                  </div>
+
+                  {/* Email Recipients */}
+                  <div className="space-y-3 pt-4 border-t border-border/50">
+                    <Label className="flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      Notification Emails
+                    </Label>
+                    
+                    {/* Add new email form */}
+                    <form onSubmit={handleAddEmail} className="flex gap-2">
+                      <Input 
+                        type="email"
+                        placeholder="Add email address..."
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        className="flex-1 font-mono text-sm"
+                        data-testid="input-new-email"
+                      />
+                      <Button 
+                        type="submit" 
+                        size="icon" 
+                        variant="outline"
+                        disabled={addEmailMutation.isPending}
+                        data-testid="button-add-email"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </form>
+
+                    {/* Email list */}
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {emails.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No email recipients configured</p>
+                      ) : (
+                        emails.map((recipient) => (
+                          <div 
+                            key={recipient.id} 
+                            className="flex items-center justify-between gap-2 p-2 bg-accent/30 rounded-md"
+                            data-testid={`email-recipient-${recipient.id}`}
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <Switch 
+                                checked={recipient.active ?? true}
+                                onCheckedChange={(checked) => toggleEmailMutation.mutate({ id: recipient.id, active: checked })}
+                                data-testid={`switch-email-${recipient.id}`}
+                              />
+                              <span className={`text-xs font-mono truncate ${recipient.active ? '' : 'opacity-50 line-through'}`}>
+                                {recipient.email}
+                              </span>
+                            </div>
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeEmailMutation.mutate(recipient.id)}
+                              data-testid={`button-remove-email-${recipient.id}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -234,9 +367,10 @@ export default function Dashboard() {
                 <div 
                   ref={scrollRef}
                   className="absolute inset-0 overflow-y-auto p-4 font-mono text-xs space-y-1.5 scrollbar-hide"
+                  data-testid="container-logs"
                 >
                   <AnimatePresence initial={false}>
-                    {logs.map((log) => (
+                    {displayLogs.map((log) => (
                       <motion.div 
                         key={log.id}
                         initial={{ opacity: 0, x: -10 }}
@@ -244,23 +378,23 @@ export default function Dashboard() {
                         className="flex gap-3"
                       >
                         <span className="text-muted-foreground opacity-50 shrink-0">
-                          {log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          {new Date(log.createdAt).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                         <span className={`${
-                          log.type === 'success' ? 'text-emerald-400' : 
-                          log.type === 'warning' ? 'text-amber-400' : 
-                          log.type === 'error' ? 'text-red-400' : 
+                          log.logType === 'success' ? 'text-emerald-400' : 
+                          log.logType === 'warning' ? 'text-amber-400' : 
+                          log.logType === 'error' ? 'text-red-400' : 
                           'text-slate-300'
                         }`}>
-                          {log.type === 'success' && '✓ '}
-                          {log.type === 'warning' && '→ '}
-                          {log.type === 'error' && '✕ '}
+                          {log.logType === 'success' && '✓ '}
+                          {log.logType === 'warning' && '→ '}
+                          {log.logType === 'error' && '✕ '}
                           {log.message}
                         </span>
                       </motion.div>
                     ))}
                   </AnimatePresence>
-                  {logs.length === 0 && (
+                  {displayLogs.length === 0 && (
                     <div className="text-muted-foreground italic opacity-50">Waiting for system start...</div>
                   )}
                 </div>
@@ -276,27 +410,28 @@ export default function Dashboard() {
                   <CardTitle className="text-xl">Found Studies</CardTitle>
                   <CardDescription>Real-time feed of matching opportunities</CardDescription>
                 </div>
-                <Badge variant="outline" className="font-mono">
-                  {foundStudies.length} Matches
+                <Badge variant="outline" className="font-mono" data-testid="badge-study-count">
+                  {studies.length} Matches
                 </Badge>
               </CardHeader>
               <CardContent className="flex-1 p-0 relative">
                 <ScrollArea className="h-full absolute inset-0">
                   <div className="p-6 pt-0 space-y-4">
                     <AnimatePresence mode="popLayout">
-                      {foundStudies.length === 0 ? (
+                      {studies.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-64 text-center space-y-4 opacity-50">
                           <Search className="w-12 h-12 text-muted-foreground" />
                           <p className="text-muted-foreground">Scanning for new projects...</p>
                         </div>
                       ) : (
-                        foundStudies.map((study) => (
+                        studies.map((study) => (
                           <motion.div
                             key={study.id}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             layout
+                            data-testid={`card-study-${study.id}`}
                           >
                             <Card className="group border-border/40 hover:border-primary/50 transition-colors bg-accent/10">
                               <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -305,23 +440,33 @@ export default function Dashboard() {
                                     <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
                                       {study.title}
                                     </h3>
-                                    {study.matchScore > 90 && (
+                                    {study.matchScore && study.matchScore > 90 && (
                                       <Badge className="bg-primary/20 text-primary hover:bg-primary/30 border-0 text-[10px] px-1.5 py-0">
                                         High Match
+                                      </Badge>
+                                    )}
+                                    {study.notified && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                        Notified
                                       </Badge>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
                                     <span className="flex items-center gap-1.5">
-                                      <Clock className="w-3 h-3" /> {study.time}
+                                      <Clock className="w-3 h-3" /> {study.duration}
                                     </span>
                                     <span className="flex items-center gap-1.5">
-                                      <Activity className="w-3 h-3" /> {study.type}
+                                      <Activity className="w-3 h-3" /> {study.studyType}
                                     </span>
-                                    <span>
-                                      Found: {study.timestamp.toLocaleTimeString()}
-                                    </span>
+                                    {study.matchScore && (
+                                      <span>Match: {study.matchScore}%</span>
+                                    )}
                                   </div>
+                                  {study.postedAt && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Posted: {new Date(study.postedAt).toLocaleString()}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="flex items-center justify-between sm:justify-end gap-4">
                                   <div className="text-right">
@@ -330,9 +475,13 @@ export default function Dashboard() {
                                     </div>
                                     <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Incentive</div>
                                   </div>
-                                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    <ExternalLink className="w-4 h-4" />
-                                  </Button>
+                                  {study.link && (
+                                    <a href={study.link} target="_blank" rel="noopener noreferrer">
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                                        <ExternalLink className="w-4 h-4" />
+                                      </Button>
+                                    </a>
+                                  )}
                                 </div>
                               </CardContent>
                             </Card>

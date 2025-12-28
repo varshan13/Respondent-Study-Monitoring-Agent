@@ -1,38 +1,124 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import { 
+  studies, 
+  emailRecipients, 
+  agentSettings, 
+  checkLogs,
+  type Study, 
+  type InsertStudy,
+  type EmailRecipient,
+  type InsertEmailRecipient,
+  type AgentSettings,
+  type CheckLog,
+  type InsertCheckLog
+} from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  // Studies
+  getStudies(): Promise<Study[]>;
+  getStudyByExternalId(externalId: string): Promise<Study | undefined>;
+  createStudy(study: InsertStudy): Promise<Study>;
+  markStudyNotified(id: string): Promise<void>;
+  
+  // Email Recipients
+  getEmailRecipients(): Promise<EmailRecipient[]>;
+  getActiveEmailRecipients(): Promise<EmailRecipient[]>;
+  addEmailRecipient(email: InsertEmailRecipient): Promise<EmailRecipient>;
+  removeEmailRecipient(id: string): Promise<void>;
+  toggleEmailRecipient(id: string, active: boolean): Promise<void>;
+  
+  // Agent Settings
+  getAgentSettings(): Promise<AgentSettings | undefined>;
+  updateAgentSettings(settings: Partial<AgentSettings>): Promise<AgentSettings>;
+  
+  // Check Logs
+  getCheckLogs(limit?: number): Promise<CheckLog[]>;
+  addCheckLog(log: InsertCheckLog): Promise<CheckLog>;
+  clearCheckLogs(): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+export class DatabaseStorage implements IStorage {
+  // Studies
+  async getStudies(): Promise<Study[]> {
+    return db.select().from(studies).orderBy(desc(studies.createdAt));
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getStudyByExternalId(externalId: string): Promise<Study | undefined> {
+    const result = await db.select().from(studies).where(eq(studies.externalId, externalId));
+    return result[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async createStudy(study: InsertStudy): Promise<Study> {
+    const result = await db.insert(studies).values(study).returning();
+    return result[0];
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async markStudyNotified(id: string): Promise<void> {
+    await db.update(studies).set({ notified: true }).where(eq(studies.id, id));
+  }
+
+  // Email Recipients
+  async getEmailRecipients(): Promise<EmailRecipient[]> {
+    return db.select().from(emailRecipients).orderBy(desc(emailRecipients.createdAt));
+  }
+
+  async getActiveEmailRecipients(): Promise<EmailRecipient[]> {
+    return db.select().from(emailRecipients).where(eq(emailRecipients.active, true));
+  }
+
+  async addEmailRecipient(email: InsertEmailRecipient): Promise<EmailRecipient> {
+    const result = await db.insert(emailRecipients).values(email).returning();
+    return result[0];
+  }
+
+  async removeEmailRecipient(id: string): Promise<void> {
+    await db.delete(emailRecipients).where(eq(emailRecipients.id, id));
+  }
+
+  async toggleEmailRecipient(id: string, active: boolean): Promise<void> {
+    await db.update(emailRecipients).set({ active }).where(eq(emailRecipients.id, id));
+  }
+
+  // Agent Settings
+  async getAgentSettings(): Promise<AgentSettings | undefined> {
+    const result = await db.select().from(agentSettings);
+    if (result.length === 0) {
+      // Create default settings
+      const defaultSettings = await db.insert(agentSettings).values({
+        checkIntervalMinutes: 10,
+        isActive: true,
+      }).returning();
+      return defaultSettings[0];
+    }
+    return result[0];
+  }
+
+  async updateAgentSettings(settings: Partial<AgentSettings>): Promise<AgentSettings> {
+    const current = await this.getAgentSettings();
+    if (!current) {
+      throw new Error("Agent settings not found");
+    }
+    const result = await db.update(agentSettings)
+      .set(settings)
+      .where(eq(agentSettings.id, current.id))
+      .returning();
+    return result[0];
+  }
+
+  // Check Logs
+  async getCheckLogs(limit = 100): Promise<CheckLog[]> {
+    return db.select().from(checkLogs).orderBy(desc(checkLogs.createdAt)).limit(limit);
+  }
+
+  async addCheckLog(log: InsertCheckLog): Promise<CheckLog> {
+    const result = await db.insert(checkLogs).values(log).returning();
+    return result[0];
+  }
+
+  async clearCheckLogs(): Promise<void> {
+    await db.delete(checkLogs);
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
