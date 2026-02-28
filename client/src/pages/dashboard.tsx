@@ -79,6 +79,71 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+const StudyCard = ({ study }: { study: Study }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, scale: 0.95 }}
+    layout
+    data-testid={`card-study-${study.id}`}
+  >
+    <Card className="group border-border/40 hover:border-primary/50 transition-colors bg-accent/10">
+      <CardContent className="p-4 space-y-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <a 
+                href={study.link || '#'} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-semibold text-primary hover:underline"
+              >
+                {study.title}
+              </a>
+              {study.notified && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                  Notified
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center flex-wrap gap-1 text-xs text-muted-foreground mt-1">
+              <span className="font-bold text-emerald-500">${study.payout.toFixed(2)}</span>
+              {study.postedAt && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span>{study.postedAt}</span>
+                </>
+              )}
+              <span className="text-muted-foreground/50">·</span>
+              <span>{study.duration}</span>
+              {study.studyFormat && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span>{study.studyFormat}</span>
+                </>
+              )}
+              <span className="text-muted-foreground/50">·</span>
+              <span>{study.studyType}</span>
+            </div>
+          </div>
+          {study.link && (
+            <a href={study.link} target="_blank" rel="noopener noreferrer" className="shrink-0">
+              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <ExternalLink className="w-4 h-4" />
+              </Button>
+            </a>
+          )}
+        </div>
+        {study.description && (
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {study.description}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  </motion.div>
+);
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [newEmail, setNewEmail] = useState("");
@@ -89,6 +154,9 @@ export default function Dashboard() {
     queryFn: () => apiRequest('/api/studies'),
     refetchInterval: 5000,
   });
+
+  const respondentStudies = studies.filter(s => (s.platform || 'respondent') === 'respondent');
+  const uiStudies = studies.filter(s => s.platform === 'userinterviews');
 
   // Fetch logs
   const { data: logs = [] } = useQuery<CheckLog[]>({
@@ -408,84 +476,44 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent className="flex-1 p-0 relative">
                 <ScrollArea className="h-full absolute inset-0">
-                  <div className="p-6 pt-0 space-y-4">
-                    <AnimatePresence mode="popLayout">
-                      {studies.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-64 text-center space-y-4 opacity-50">
-                          <Search className="w-12 h-12 text-muted-foreground" />
-                          <p className="text-muted-foreground">Scanning for new projects...</p>
-                        </div>
-                      ) : (
-                        studies.map((study) => (
-                          <motion.div
-                            key={study.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            layout
-                            data-testid={`card-study-${study.id}`}
-                          >
-                            <Card className="group border-border/40 hover:border-primary/50 transition-colors bg-accent/10">
-                              <CardContent className="p-4 space-y-2">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0 shrink-0 border-primary/30 text-primary/80">
-                                        {study.platform === 'userinterviews' ? 'User Interviews' : 'Respondent'}
-                                      </Badge>
-                                      <a 
-                                        href={study.link || '#'} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="font-semibold text-primary hover:underline"
-                                      >
-                                        {study.title}
-                                      </a>
-                                      {study.notified && (
-                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                                          Notified
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center flex-wrap gap-1 text-xs text-muted-foreground mt-1">
-                                      <span className="font-bold text-emerald-500">${study.payout.toFixed(2)}</span>
-                                      {study.postedAt && (
-                                        <>
-                                          <span className="text-muted-foreground/50">·</span>
-                                          <span>{study.postedAt}</span>
-                                        </>
-                                      )}
-                                      <span className="text-muted-foreground/50">·</span>
-                                      <span>{study.duration}</span>
-                                      {study.studyFormat && (
-                                        <>
-                                          <span className="text-muted-foreground/50">·</span>
-                                          <span>{study.studyFormat}</span>
-                                        </>
-                                      )}
-                                      <span className="text-muted-foreground/50">·</span>
-                                      <span>{study.studyType}</span>
-                                    </div>
-                                  </div>
-                                  {study.link && (
-                                    <a href={study.link} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                                        <ExternalLink className="w-4 h-4" />
-                                      </Button>
-                                    </a>
-                                  )}
-                                </div>
-                                {study.description && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2">
-                                    {study.description}
-                                  </p>
-                                )}
-                              </CardContent>
-                            </Card>
-                          </motion.div>
-                        ))
-                      )}
-                    </AnimatePresence>
+                  <div className="p-6 pt-0 space-y-8">
+                    {/* Respondent Section */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                        <Badge className="bg-primary/10 text-primary border-primary/20">Respondent.io</Badge>
+                        <span className="text-xs text-muted-foreground font-mono">{respondentStudies.length} matching</span>
+                      </div>
+                      <AnimatePresence mode="popLayout">
+                        {respondentStudies.length === 0 ? (
+                          <div className="py-8 text-center text-sm text-muted-foreground italic">
+                            No Respondent studies found yet...
+                          </div>
+                        ) : (
+                          respondentStudies.map((study) => (
+                            <StudyCard key={study.id} study={study} />
+                          ))
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* User Interviews Section */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                        <Badge className="bg-primary/10 text-primary border-primary/20">User Interviews</Badge>
+                        <span className="text-xs text-muted-foreground font-mono">{uiStudies.length} matching</span>
+                      </div>
+                      <AnimatePresence mode="popLayout">
+                        {uiStudies.length === 0 ? (
+                          <div className="py-8 text-center text-sm text-muted-foreground italic">
+                            No User Interviews studies found yet...
+                          </div>
+                        ) : (
+                          uiStudies.map((study) => (
+                            <StudyCard key={study.id} study={study} />
+                          ))
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
                 </ScrollArea>
               </CardContent>
