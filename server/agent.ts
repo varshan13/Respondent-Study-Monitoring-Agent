@@ -2,7 +2,7 @@
 import { storage } from "./storage";
 import { sendStudyNotification } from "./email";
 import { sendDiscordNotification } from "./discord";
-import { scrapeRespondentStudies, generateDemoStudies } from "./scraper";
+import { scrapeRespondentStudies, scrapeUserInterviewsStudies, generateDemoStudies } from "./scraper";
 import type { Study } from "@shared/schema";
 
 let agentInterval: NodeJS.Timeout | null = null;
@@ -17,67 +17,78 @@ async function addLog(message: string, logType: "info" | "success" | "warning" |
   console.log(`[Agent ${logType.toUpperCase()}] ${message}`);
 }
 
+async function processPlatformStudies(platform: 'respondent' | 'userinterviews', scrapedStudies: any[]) {
+  if (scrapedStudies.length === 0) {
+    await addLog(`No studies found on ${platform}`, "info");
+    return [];
+  }
+
+  await addLog(`Found ${scrapedStudies.length} potential studies on ${platform}`, "info");
+  
+  const newStudies: Study[] = [];
+  
+  for (const scraped of scrapedStudies) {
+    const existing = await storage.getStudyByExternalId(scraped.externalId);
+    if (!existing) {
+      const saved = await storage.createStudy({
+        externalId: scraped.externalId,
+        platform,
+        title: scraped.title,
+        payout: scraped.payout,
+        duration: scraped.duration,
+        studyType: scraped.studyType,
+        studyFormat: scraped.studyFormat || null,
+        matchScore: scraped.matchScore || null,
+        postedAt: scraped.postedAt || null,
+        link: scraped.link || null,
+        description: scraped.description || null,
+        pageOrder: scraped.pageOrder,
+        notified: false,
+      });
+      newStudies.push(saved);
+      await addLog(`[${platform}] New study: "${saved.title}" ($${saved.payout})`, "success");
+    } else {
+      await storage.updateStudy(scraped.externalId, {
+        title: scraped.title,
+        payout: scraped.payout,
+        duration: scraped.duration,
+        studyType: scraped.studyType,
+        studyFormat: scraped.studyFormat || null,
+        postedAt: scraped.postedAt || null,
+        pageOrder: scraped.pageOrder,
+      });
+    }
+  }
+  return newStudies;
+}
+
 export async function runCheck(): Promise<Study[]> {
   await addLog("Initiating scheduled check...", "info");
   
   try {
-    // Scrape real studies from Respondent.io public page
-    const scrapedStudies = await scrapeRespondentStudies();
+    // Scrape both platforms
+    const [respondentStudies, uiStudies] = await Promise.all([
+      scrapeRespondentStudies(),
+      scrapeUserInterviewsStudies()
+    ]);
     
-    if (scrapedStudies.length === 0) {
-      await addLog("No studies found on Respondent.io page", "info");
-      return [];
-    }
+    // Sync studies - we need to handle combined external IDs for sync
+    const allScrapedExternalIds = [
+      ...respondentStudies.map(s => s.externalId),
+      ...uiStudies.map(s => s.externalId)
+    ];
     
-    await addLog(`Found ${scrapedStudies.length} potential studies`, "info");
-    
-    // Get all external IDs from the current scrape
-    const currentExternalIds = scrapedStudies.map(s => s.externalId);
-    
-    // Remove stale studies that are no longer on the page
-    const removedCount = await storage.syncStudies(currentExternalIds);
+    const removedCount = await storage.syncStudies(allScrapedExternalIds);
     if (removedCount > 0) {
-      await addLog(`Removed ${removedCount} stale studies no longer on the page`, "info");
+      await addLog(`Removed ${removedCount} stale studies no longer on either page`, "info");
     }
     
-    // Check which studies are new and update/insert all studies
-    const newStudies: Study[] = [];
+    const newRespondent = await processPlatformStudies('respondent', respondentStudies);
+    const newUI = await processPlatformStudies('userinterviews', uiStudies);
     
-    for (const scraped of scrapedStudies) {
-      const existing = await storage.getStudyByExternalId(scraped.externalId);
-      if (!existing) {
-        // This is a new study - save it
-        const saved = await storage.createStudy({
-          externalId: scraped.externalId,
-          title: scraped.title,
-          payout: scraped.payout,
-          duration: scraped.duration,
-          studyType: scraped.studyType,
-          studyFormat: scraped.studyFormat || null,
-          matchScore: scraped.matchScore || null,
-          postedAt: scraped.postedAt || null,
-          link: scraped.link || null,
-          description: scraped.description || null,
-          pageOrder: scraped.pageOrder,
-          notified: false,
-        });
-        newStudies.push(saved);
-        await addLog(`New study: "${saved.title}" ($${saved.payout})`, "success");
-      } else {
-        // Update existing study with latest data (including page order)
-        await storage.updateStudy(scraped.externalId, {
-          title: scraped.title,
-          payout: scraped.payout,
-          duration: scraped.duration,
-          studyType: scraped.studyType,
-          studyFormat: scraped.studyFormat || null,
-          postedAt: scraped.postedAt || null,
-          pageOrder: scraped.pageOrder,
-        });
-      }
-    }
+    const allNewStudies = [...newRespondent, ...newUI];
     
-    if (newStudies.length === 0) {
+    if (allNewStudies.length === 0) {
       await addLog("All studies already known - no new matches", "info");
       return [];
     }
@@ -86,26 +97,22 @@ export async function runCheck(): Promise<Study[]> {
     const activeRecipients = await storage.getActiveEmailRecipients();
     if (activeRecipients.length > 0) {
       const emails = activeRecipients.map(r => r.email);
-      await addLog(`Sending notifications to ${emails.length} recipient(s)...`, "warning");
+      await addLog(`Sending notifications for ${allNewStudies.length} new studies to ${emails.length} recipient(s)...`, "warning");
       
-      const success = await sendStudyNotification(emails, newStudies);
+      const success = await sendStudyNotification(emails, allNewStudies);
       if (success) {
         await addLog(`Email notifications sent successfully`, "success");
-        // Mark studies as notified
-        for (const study of newStudies) {
+        for (const study of allNewStudies) {
           await storage.markStudyNotified(study.id);
         }
       } else {
         await addLog(`Failed to send email notifications`, "error");
       }
-    } else {
-      await addLog("No active email recipients configured", "warning");
     }
     
-    // Send Discord notifications
     if (process.env.DISCORD_WEBHOOK_URL) {
       await addLog("Sending Discord notification...", "info");
-      const discordSuccess = await sendDiscordNotification(newStudies);
+      const discordSuccess = await sendDiscordNotification(allNewStudies);
       if (discordSuccess) {
         await addLog("Discord notification sent successfully", "success");
       } else {
@@ -113,7 +120,7 @@ export async function runCheck(): Promise<Study[]> {
       }
     }
     
-    return newStudies;
+    return allNewStudies;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await addLog(`Check failed: ${msg}`, "error");

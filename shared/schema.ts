@@ -3,10 +3,11 @@ import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Studies found from Respondent.io
+// Studies found from Respondent.io and User Interviews
 export const studies = pgTable("studies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   externalId: text("external_id").notNull().unique(),
+  platform: text("platform").notNull().default('respondent'),
   title: text("title").notNull(),
   payout: integer("payout").notNull(),
   duration: text("duration").notNull(),

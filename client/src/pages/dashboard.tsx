@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 interface Study {
   id: string;
   externalId: string;
+  platform: string;
   title: string;
   payout: number;
   duration: string;
@@ -211,7 +212,7 @@ export default function Dashboard() {
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3" data-testid="text-title">
               <Database className="w-8 h-8 text-primary" />
-              Respondent.io Agent
+              Study Monitor Agent
             </h1>
             <p className="text-muted-foreground font-mono text-sm">v2.1.0 - Automated Study Monitor</p>
           </div>
@@ -429,6 +430,9 @@ export default function Dashboard() {
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
+                                      <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0 shrink-0 border-primary/30 text-primary/80">
+                                        {study.platform === 'userinterviews' ? 'User Interviews' : 'Respondent'}
+                                      </Badge>
                                       <a 
                                         href={study.link || '#'} 
                                         target="_blank" 

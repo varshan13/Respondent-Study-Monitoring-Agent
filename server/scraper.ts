@@ -215,6 +215,111 @@ export async function scrapeRespondentStudies(): Promise<ScrapedStudy[]> {
   }
 }
 
+export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
+  let browser;
+  try {
+    console.log('Launching headless browser for User Interviews...');
+    
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    
+    const page = await context.newPage();
+    
+    console.log('Navigating to User Interviews browse page...');
+    await page.goto("https://www.userinterviews.com/studies?sort=-id", { waitUntil: 'networkidle', timeout: 30000 });
+    
+    // Wait for study cards
+    await page.waitForSelector('.study-card, [class*="StudyCard"], a[href*="/projects/"]', { timeout: 15000 }).catch(() => {
+      console.log('No User Interviews project links found');
+    });
+    
+    await page.waitForTimeout(2000);
+    
+    const studies = await page.evaluate(() => {
+      const results: Array<{
+        externalId: string;
+        title: string;
+        payout: number;
+        duration: string;
+        studyType: string;
+        studyFormat: string;
+        postedAt: string;
+        link: string;
+        description: string;
+        pageOrder: number;
+      }> = [];
+      
+      // Select all study cards - adjust selector based on typical UI patterns for UI.com
+      const cards = document.querySelectorAll('.study-card, [class*="StudyCard"], .Card-module__card');
+      
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const linkEl = card.querySelector('a[href*="/projects/"]') || card.querySelector('a');
+        const href = linkEl?.getAttribute('href') || '';
+        if (!href.includes('/projects/')) continue;
+        
+        const externalId = href.split('/').pop() || `ui-${i}`;
+        const title = card.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim() || 'Unknown Study';
+        
+        const cardText = card.textContent || '';
+        
+        // Payout extraction
+        const payoutMatch = cardText.match(/\$(\d+(?:\.\d{2})?)/);
+        const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1])) : 0;
+        
+        // Duration extraction
+        const durationMatch = cardText.match(/(\d+\s*(?:min|hour|hr)s?)/i);
+        const duration = durationMatch ? durationMatch[1] : 'Unknown';
+        
+        // Study Type / Format
+        const isRemote = cardText.toLowerCase().includes('remote') || cardText.toLowerCase().includes('online');
+        const studyType = isRemote ? 'Remote' : 'In-Person';
+        
+        let studyFormat = '';
+        if (cardText.toLowerCase().includes('one-on-one') || cardText.toLowerCase().includes('interview')) {
+          studyFormat = 'One-on-One';
+        } else if (cardText.toLowerCase().includes('unmoderated') || cardText.toLowerCase().includes('task')) {
+          studyFormat = 'Unmoderated';
+        } else if (cardText.toLowerCase().includes('focus group')) {
+          studyFormat = 'Focus Group';
+        }
+
+        const descElement = card.querySelector('p, [class*="description"]');
+        const description = descElement?.textContent?.trim().substring(0, 500) || '';
+        
+        results.push({
+          externalId,
+          title,
+          payout,
+          duration,
+          studyType,
+          studyFormat,
+          postedAt: 'New',
+          link: href.startsWith('http') ? href : `https://www.userinterviews.com${href}`,
+          description,
+          pageOrder: i
+        });
+      }
+      return results;
+    });
+    
+    console.log(`Scraped ${studies.length} studies from User Interviews`);
+    await browser.close();
+    return studies;
+  } catch (error) {
+    console.error('Error scraping User Interviews:', error);
+    if (browser) await browser.close().catch(() => {});
+    return [];
+  }
+}
+
 // Alternative: Generate demo studies for testing (only used as fallback)
 export function generateDemoStudies(): ScrapedStudy[] {
   const topics = [
