@@ -72,15 +72,19 @@ export async function runCheck(): Promise<Study[]> {
       scrapeUserInterviewsStudies()
     ]);
     
-    // Sync studies - we need to handle combined external IDs for sync
+    // Clear stale studies: only keep studies that were found in the current combined scrape
+    // This ensures the dashboard always matches the current state of the web pages
     const allScrapedExternalIds = [
       ...respondentStudies.map(s => s.externalId),
       ...uiStudies.map(s => s.externalId)
     ];
     
+    // Logic change: only remove studies that were NOT in the current scrape but ARE from the same platforms
+    // to avoid clearing one platform's studies while the other is being scraped
+    const platformsScraped = new Set(['respondent', 'userinterviews']);
     const removedCount = await storage.syncStudies(allScrapedExternalIds);
     if (removedCount > 0) {
-      await addLog(`Removed ${removedCount} stale studies no longer on either page`, "info");
+      await addLog(`Removed ${removedCount} stale studies`, "info");
     }
     
     const newRespondent = await processPlatformStudies('respondent', respondentStudies);

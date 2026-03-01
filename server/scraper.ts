@@ -247,81 +247,42 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
     await page.evaluate(() => window.scrollBy(0, 500));
     await page.waitForTimeout(3000);
     
+    // Extract study data from the page
     const studies = await page.evaluate(() => {
-      const results: Array<{
-        externalId: string;
-        title: string;
-        payout: number;
-        duration: string;
-        studyType: string;
-        studyFormat: string;
-        postedAt: string;
-        link: string;
-        description: string;
-        pageOrder: number;
-      }> = [];
+      const results: any[] = [];
       
-      // Look for ALL links that point to a study
-      const links = Array.from(document.querySelectorAll('a'));
-      const studyLinks = links.filter(link => {
-        const href = link.getAttribute('href') || '';
-        return (href.includes('/projects/') || href.includes('/studies/')) && 
-               !href.includes('/blog/') && 
-               !href.includes('/help/') &&
-               !href.includes('/login');
-      });
-
-      const seenIds = new Set();
-
-      for (let i = 0; i < studyLinks.length; i++) {
-        const linkEl = studyLinks[i];
+      // User Interviews uses specific classes for study cards
+      const cards = Array.from(document.querySelectorAll('[class*="StudyCard"], [class*="study-card"], article'));
+      
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i] as HTMLElement;
+        const text = card.textContent || '';
+        
+        // Find title
+        let title = 'Unknown Study';
+        const titleEl = card.querySelector('h1, h2, h3, h4, [class*="title"], [class*="Name"]');
+        if (titleEl) title = titleEl.textContent?.trim() || title;
+        
+        // Find link
+        const linkEl = card.querySelector('a[href*="/projects/"], a[href*="/studies/"]');
+        if (!linkEl) continue;
         const href = linkEl.getAttribute('href') || '';
+        
+        // External ID
         const parts = href.split('/').filter(Boolean);
-        const externalId = parts[parts.length - 1] || `ui-${i}`;
-        
-        if (seenIds.has(externalId)) continue;
-        seenIds.add(externalId);
+        const externalId = parts[parts.length - 1];
+        if (!externalId) continue;
 
-        // Find a container that holds the study info
-        let container: HTMLElement | null = linkEl.parentElement;
-        let foundContainer = false;
-        for (let depth = 0; depth < 12; depth++) {
-          if (!container) break;
-          const text = container.textContent || '';
-          // If it contains a dollar sign and a duration-like string, it's likely our card
-          if (text.includes('$') && (text.toLowerCase().includes('min') || text.toLowerCase().includes('hour') || text.toLowerCase().includes('hr'))) {
-            foundContainer = true;
-            break;
-          }
-          container = container.parentElement;
-        }
-
-        // If we didn't find a "perfect" container, use a reasonably sized parent
-        if (!foundContainer) {
-          container = linkEl.parentElement?.parentElement?.parentElement || linkEl.parentElement || linkEl as any as HTMLElement;
-        }
-
-        const containerText = container.textContent || '';
-        
-        // Payout extraction - look for $ followed by numbers
-        const payoutMatch = containerText.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+        // Payout - look for $ followed by numbers
+        const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
         let payout = 0;
         if (payoutMatch) {
           payout = Math.round(parseFloat(payoutMatch[1].replace(/,/g, '')));
         }
         
-        // Filter out junk "studies" with $0 payout (often nav links or marketing)
-        // Also filter out suspiciously high payouts (e.g. > $2000) which are often scraping errors
+        // Filter out junk
         if (payout <= 0 || payout > 2000) continue;
-
-        // Use the link text as title if we can't find a better one
-        let title = linkEl.textContent?.trim() || 'Unknown Study';
-        const titleEl = container.querySelector('h1, h2, h3, h4, [class*="title"], [class*="Name"]');
-        if (titleEl && titleEl.textContent?.trim().length > 5) {
-          title = titleEl.textContent?.trim();
-        }
         
-        // Filter out marketing/category titles and generic text
         const lowerTitle = title.toLowerCase();
         if (lowerTitle.includes('online surveys') || 
             lowerTitle.includes('online focus groups') || 
@@ -332,37 +293,73 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
             lowerTitle.includes('view all') ||
             title.length < 5) continue;
 
-        
-        // Duration extraction
-        const durationMatch = containerText.match(/(\d+\s*(?:min|hour|hr)s?)/i);
+        // Duration
+        const durationMatch = text.match(/(\d+\s*(?:min|hour|hr)s?)/i);
         const duration = durationMatch ? durationMatch[1] : 'Unknown';
-        
-        // Study Type / Format
-        const lowerText = containerText.toLowerCase();
-        const isRemote = lowerText.includes('remote') || lowerText.includes('online') || lowerText.includes('webcam');
-        const studyType = isRemote ? 'Remote' : 'In-Person';
-        
-        let studyFormat = '';
-        if (lowerText.includes('one-on-one') || lowerText.includes('interview')) {
-          studyFormat = 'One-on-One';
-        } else if (lowerText.includes('unmoderated') || lowerText.includes('task') || lowerText.includes('survey')) {
-          studyFormat = 'Unmoderated';
-        }
 
-        const description = container.querySelector('p, [class*="description"], [class*="Summary"]')?.textContent?.trim().substring(0, 500) || '';
-        
         results.push({
           externalId,
           title,
           payout,
           duration,
-          studyType,
-          studyFormat,
+          studyType: text.toLowerCase().includes('online') || text.toLowerCase().includes('remote') ? 'Remote' : 'In-Person',
+          studyFormat: text.toLowerCase().includes('one-on-one') ? 'One-on-One' : (text.toLowerCase().includes('unmoderated') ? 'Unmoderated' : ''),
           postedAt: 'New',
           link: href.startsWith('http') ? href : `https://www.userinterviews.com${href}`,
-          description,
+          description: card.querySelector('p, [class*="description"], [class*="Summary"]')?.textContent?.trim().substring(0, 500) || '',
           pageOrder: results.length
         });
+      }
+      
+      // Fallback if cards not found by specific selectors
+      if (results.length === 0) {
+        const links = Array.from(document.querySelectorAll('a[href*="/projects/"], a[href*="/studies/"]'));
+        const seenIds = new Set();
+        
+        for (let i = 0; i < links.length; i++) {
+          const linkEl = links[i] as HTMLElement;
+          const href = linkEl.getAttribute('href') || '';
+          if (href.includes('/blog/') || href.includes('/help/') || href.includes('/login')) continue;
+          
+          const parts = href.split('/').filter(Boolean);
+          const externalId = parts[parts.length - 1];
+          if (!externalId || seenIds.has(externalId)) continue;
+          seenIds.add(externalId);
+
+          let container = linkEl.closest('[class*="card"], [class*="Card"], [class*="item"], [class*="Item"]') as HTMLElement;
+          if (!container) {
+             container = linkEl.parentElement as HTMLElement;
+             for (let d = 0; d < 10; d++) {
+               if (!container) break;
+               if (container.textContent?.includes('$') && (container.textContent?.toLowerCase().includes('min') || container.textContent?.toLowerCase().includes('hour'))) break;
+               container = container.parentElement as HTMLElement;
+             }
+          }
+          if (!container) continue;
+
+          const cText = container.textContent || '';
+          const pMatch = cText.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+          let p = 0;
+          if (pMatch) p = Math.round(parseFloat(pMatch[1].replace(/,/g, '')));
+          if (p <= 0 || p > 2000) continue;
+
+          let t = linkEl.textContent?.trim() || 'Unknown Study';
+          const h = container.querySelector('h1, h2, h3, h4, [class*="title"], [class*="Name"]') as HTMLElement;
+          if (h) t = h.textContent?.trim() || t;
+
+          results.push({
+            externalId,
+            title: t,
+            payout: p,
+            duration: (cText.match(/(\d+\s*(?:min|hour|hr)s?)/i) || [])[1] || 'Unknown',
+            studyType: cText.toLowerCase().includes('online') || cText.toLowerCase().includes('remote') ? 'Remote' : 'In-Person',
+            studyFormat: cText.toLowerCase().includes('one-on-one') ? 'One-on-One' : (cText.toLowerCase().includes('unmoderated') ? 'Unmoderated' : ''),
+            postedAt: 'New',
+            link: href.startsWith('http') ? href : `https://www.userinterviews.com${href}`,
+            description: container.querySelector('p, [class*="description"], [class*="Summary"]')?.textContent?.trim().substring(0, 500) || '',
+            pageOrder: results.length
+          });
+        }
       }
       return results;
     });

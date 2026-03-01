@@ -69,6 +69,9 @@ export class DatabaseStorage implements IStorage {
     if (currentExternalIds.length === 0) {
       return 0;
     }
+    // Only delete studies that are NOT in the current scrape AND match the externalIds we are looking for
+    // Wait, syncStudies should actually just delete anything not in currentExternalIds 
+    // because we scrape both platforms every time in runCheck()
     const result = await db.delete(studies).where(notInArray(studies.externalId, currentExternalIds)).returning();
     return result.length;
   }
