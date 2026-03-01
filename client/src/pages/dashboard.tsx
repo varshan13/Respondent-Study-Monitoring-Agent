@@ -158,6 +158,8 @@ export default function Dashboard() {
   const respondentStudies = studies.filter(s => (s.platform || 'respondent') === 'respondent');
   const uiStudies = studies.filter(s => s.platform === 'userinterviews');
 
+  const [activeTab, setActiveTab] = useState<"respondent" | "userinterviews">("respondent");
+
   // Fetch logs
   const { data: logs = [] } = useQuery<CheckLog[]>({
     queryKey: ['/api/logs'],
@@ -465,55 +467,92 @@ export default function Dashboard() {
           {/* Right Column: Results */}
           <div className="lg:col-span-2 flex flex-col h-full">
             <Card className="border-border/50 shadow-lg h-full flex flex-col bg-card/50 backdrop-blur">
-              <CardHeader className="flex flex-row items-center justify-between pb-4">
-                <div>
-                  <CardTitle className="text-xl">Found Studies</CardTitle>
-                  <CardDescription>Real-time feed of matching opportunities</CardDescription>
+              <CardHeader className="flex flex-col pb-4">
+                <div className="flex flex-row items-center justify-between w-full">
+                  <div>
+                    <CardTitle className="text-xl">Found Studies</CardTitle>
+                    <CardDescription>Real-time feed of matching opportunities</CardDescription>
+                  </div>
+                  <Badge variant="outline" className="font-mono" data-testid="badge-study-count">
+                    {studies.length} Matches
+                  </Badge>
                 </div>
-                <Badge variant="outline" className="font-mono" data-testid="badge-study-count">
-                  {studies.length} Matches
-                </Badge>
+                
+                <div className="flex items-center gap-4 mt-4 border-b border-border/40">
+                  <button
+                    onClick={() => setActiveTab("respondent")}
+                    className={`pb-2 px-1 text-sm font-medium transition-colors relative ${
+                      activeTab === "respondent" 
+                        ? "text-primary border-b-2 border-primary" 
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    data-testid="tab-respondent"
+                  >
+                    Respondent.io
+                    <Badge variant="secondary" className="ml-2 py-0 px-1.5 h-4 text-[10px]">
+                      {respondentStudies.length}
+                    </Badge>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("userinterviews")}
+                    className={`pb-2 px-1 text-sm font-medium transition-colors relative ${
+                      activeTab === "userinterviews" 
+                        ? "text-primary border-b-2 border-primary" 
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    data-testid="tab-userinterviews"
+                  >
+                    USER INTERVIEWS
+                    <Badge variant="secondary" className="ml-2 py-0 px-1.5 h-4 text-[10px]">
+                      {uiStudies.length}
+                    </Badge>
+                  </button>
+                </div>
               </CardHeader>
               <CardContent className="flex-1 p-0 relative">
                 <ScrollArea className="h-full absolute inset-0">
-                  <div className="p-6 pt-0 space-y-8">
-                    {/* Respondent Section */}
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                        <Badge className="bg-primary/10 text-primary border-primary/20">Respondent.io</Badge>
-                        <span className="text-xs text-muted-foreground font-mono">{respondentStudies.length} matching</span>
-                      </div>
-                      <AnimatePresence mode="popLayout">
-                        {respondentStudies.length === 0 ? (
-                          <div className="py-8 text-center text-sm text-muted-foreground italic">
-                            No Respondent studies found yet...
-                          </div>
-                        ) : (
-                          respondentStudies.map((study) => (
-                            <StudyCard key={study.id} study={study} />
-                          ))
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    {/* User Interviews Section */}
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                        <Badge className="bg-primary/10 text-primary border-primary/20">User Interviews</Badge>
-                        <span className="text-xs text-muted-foreground font-mono">{uiStudies.length} matching</span>
-                      </div>
-                      <AnimatePresence mode="popLayout">
-                        {uiStudies.length === 0 ? (
-                          <div className="py-8 text-center text-sm text-muted-foreground italic">
-                            No User Interviews studies found yet...
-                          </div>
-                        ) : (
-                          uiStudies.map((study) => (
-                            <StudyCard key={study.id} study={study} />
-                          ))
-                        )}
-                      </AnimatePresence>
-                    </div>
+                  <div className="p-6 pt-2 space-y-8">
+                    <AnimatePresence mode="wait">
+                      {activeTab === "respondent" ? (
+                        <motion.div
+                          key="respondent-tab"
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-4"
+                        >
+                          {respondentStudies.length === 0 ? (
+                            <div className="py-12 text-center text-sm text-muted-foreground italic">
+                              No Respondent studies found yet...
+                            </div>
+                          ) : (
+                            respondentStudies.map((study) => (
+                              <StudyCard key={study.id} study={study} />
+                            ))
+                          )}
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="ui-tab"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-4"
+                        >
+                          {uiStudies.length === 0 ? (
+                            <div className="py-12 text-center text-sm text-muted-foreground italic">
+                              No User Interviews studies found yet...
+                            </div>
+                          ) : (
+                            uiStudies.map((study) => (
+                              <StudyCard key={study.id} study={study} />
+                            ))
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </ScrollArea>
               </CardContent>

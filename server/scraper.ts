@@ -233,7 +233,10 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
     const page = await context.newPage();
     
     console.log('Navigating to User Interviews browse page...');
-    await page.goto("https://www.userinterviews.com/studies?sort=-id", { waitUntil: 'networkidle', timeout: 45000 });
+    await page.goto("https://www.userinterviews.com/studies?sort=-id", { 
+      waitUntil: 'networkidle', 
+      timeout: 60000 
+    });
     
     // Wait for anything that looks like a study link
     await page.waitForSelector('a[href*="/projects/"], a[href*="/studies/"]', { timeout: 20000 }).catch(() => {
