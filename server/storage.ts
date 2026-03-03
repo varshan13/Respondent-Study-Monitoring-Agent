@@ -12,7 +12,7 @@ import {
   type CheckLog,
   type InsertCheckLog
 } from "@shared/schema";
-import { eq, desc, notInArray, asc } from "drizzle-orm";
+import { eq, desc, notInArray, asc, and } from "drizzle-orm";
 
 export interface IStorage {
   // Studies
@@ -21,7 +21,7 @@ export interface IStorage {
   createStudy(study: InsertStudy): Promise<Study>;
   updateStudy(externalId: string, study: Partial<InsertStudy>): Promise<Study | undefined>;
   markStudyNotified(id: string): Promise<void>;
-  syncStudies(currentExternalIds: string[]): Promise<number>;
+  syncStudiesByPlatform(platform: string, currentExternalIds: string[]): Promise<number>;
   
   // Email Recipients
   getEmailRecipients(): Promise<EmailRecipient[]>;
@@ -65,14 +65,20 @@ export class DatabaseStorage implements IStorage {
     await db.update(studies).set({ notified: true }).where(eq(studies.id, id));
   }
 
-  async syncStudies(currentExternalIds: string[]): Promise<number> {
+  async syncStudiesByPlatform(platform: string, currentExternalIds: string[]): Promise<number> {
     if (currentExternalIds.length === 0) {
       return 0;
     }
-    // Only delete studies that are NOT in the current scrape AND match the externalIds we are looking for
-    // Wait, syncStudies should actually just delete anything not in currentExternalIds 
-    // because we scrape both platforms every time in runCheck()
-    const result = await db.delete(studies).where(notInArray(studies.externalId, currentExternalIds)).returning();
+    
+    // Only delete studies for THIS platform that are not in the current external IDs list
+    const result = await db.delete(studies)
+      .where(
+        and(
+          eq(studies.platform, platform),
+          notInArray(studies.externalId, currentExternalIds)
+        )
+      )
+      .returning();
     return result.length;
   }
 
