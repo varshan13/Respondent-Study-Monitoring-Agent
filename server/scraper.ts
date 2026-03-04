@@ -250,78 +250,82 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
     // Extract study data from the page
     const studies = await page.evaluate(() => {
       const results: any[] = [];
-      
-      // We must avoid the sidebar filters.
-      // We'll target elements within the main results area.
-      // Looking for the "Apply" button as a marker for a study card.
-      const applyButtons = Array.from(document.querySelectorAll('button, a')).filter(el => 
-        el.textContent?.trim().toLowerCase() === 'apply'
-      );
-      
       const seenIds = new Set();
       
+      // User Interviews usually has a list of studies.
+      // Let's look for common container patterns for study cards.
+      // We'll also look for the "Apply" or "View Study" buttons as markers.
+      
+      // Try to find all "Apply" buttons first as they are very reliable markers for a study card
+      const applyButtons = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(el => {
+        const text = el.textContent?.trim().toLowerCase() || '';
+        return text === 'apply' || text === 'view study' || text === 'take survey' || text.includes('apply to') || text.includes('participate');
+      });
+      
+      console.log(`Found ${applyButtons.length} action buttons`);
+
       for (let i = 0; i < applyButtons.length; i++) {
-        const applyBtn = applyButtons[i] as HTMLElement;
+        const btn = applyButtons[i] as HTMLElement;
         
-        // Find the card container
-        let card: HTMLElement | null = applyBtn.parentElement;
-        let foundCard = false;
-        for (let d = 0; d < 8; d++) {
-          if (!card) break;
-          // Definitive check: a study card in the main area will have a heading and a payout
-          const hasHeading = card.querySelector('h1, h2, h3, h4, [class*="title"]');
-          const hasPayout = card.textContent?.includes('$');
-          // Important: check if this is NOT a sidebar element
-          const isSidebar = card.closest('[class*="Sidebar"], [class*="sidebar"], [class*="Filter"], [class*="filter"]');
+        // Find the unique card container for this button
+        let card: HTMLElement | null = null;
+        let curr: HTMLElement | null = btn.parentElement;
+        
+        // Go up to find the card container (div or article)
+        for (let d = 0; d < 12; d++) {
+          if (!curr) break;
+          
+          // A study card usually has a heading and a payout
+          const hasHeading = curr.querySelector('h1, h2, h3, h4, [class*="Title"], [class*="Name"]');
+          const hasPayout = curr.textContent?.includes('$');
+          // Avoid sidebars and navigation
+          const isSidebar = curr.closest('[class*="Sidebar"], [class*="sidebar"], [class*="Filter"], [class*="filter"], nav, header, footer');
           
           if (hasHeading && hasPayout && !isSidebar) {
-            // Check if the card itself contains an Apply button (to avoid outer containers)
-            const btnInCard = card.querySelector('button, a');
-            if (btnInCard) {
-              foundCard = true;
-              break;
-            }
+            // Check if this container is distinct from a previously found card
+            // We want to avoid picking up the same card twice if it has multiple buttons
+            card = curr;
           }
-          card = card.parentElement;
+          curr = curr.parentElement;
         }
         
-        if (!foundCard || !card) continue;
+        if (!card) continue;
 
         const text = card.textContent || '';
         
-        // Find title - heading inside the card
-        let title = 'Unknown Study';
-        const titleEl = card.querySelector('h1, h2, h3, h4, [class*="title"]');
-        if (titleEl) title = titleEl.textContent?.trim() || title;
-        
-        // Skip obvious filter/navigation titles
-        const lowerTitle = title.toLowerCase();
-        if (lowerTitle.includes('study format') || lowerTitle.includes('study type') || 
-            lowerTitle === 'in-person' || lowerTitle === 'online' || 
-            lowerTitle === 'over the phone' || lowerTitle === '1-on-1 interview' ||
-            lowerTitle === 'focus group' || lowerTitle === 'multi day study' ||
-            lowerTitle === 'unmoderated task') continue;
-
         // Find link
-        const linkEl = card.querySelector('a[href*="/projects/"], a[href*="/studies/"]');
-        const href = linkEl?.getAttribute('href') || '';
+        const linkEl = card.querySelector('a[href*="/projects/"], a[href*="/studies/"], a[href*="/s/"]');
+        const href = linkEl?.getAttribute('href') || btn.getAttribute('href') || '';
         
-        const parts = href.split('/').filter(Boolean);
-        const externalId = parts[parts.length - 1] || `ui-${i}`;
+        // Get unique ID
+        let externalId = '';
+        if (href) {
+          const parts = href.split('/').filter(Boolean);
+          externalId = parts[parts.length - 1];
+        }
+        
+        if (!externalId || externalId.length < 3) {
+          const titleText = card.querySelector('h1, h2, h3, h4')?.textContent?.trim() || '';
+          const payoutText = text.match(/\$\s*(\d+)/)?.[0] || '';
+          externalId = `ui-${titleText.replace(/[^a-z0-9]/gi, '').substring(0, 20)}-${payoutText}-${i}`;
+        }
         
         if (seenIds.has(externalId)) continue;
         seenIds.add(externalId);
 
+        // Find title
+        const titleEl = card.querySelector('h1, h2, h3, h4, [class*="Title"], [class*="Name"]');
+        const title = titleEl?.textContent?.trim() || 'Unknown Study';
+        
+        if (title.toLowerCase().includes('study format') || title.toLowerCase().includes('sign in') || title.length < 3) continue;
+
         // Payout extraction
         const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
-        let payout = 0;
-        if (payoutMatch) {
-          payout = Math.round(parseFloat(payoutMatch[1].replace(/,/g, '')));
-        }
+        const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1].replace(/,/g, ''))) : 0;
         
-        if (payout <= 0 || payout > 2000) continue;
+        if (payout <= 0) continue;
 
-        // Duration
+        // Duration extraction
         const durationMatch = text.match(/(\d+\s*(?:min|hour|hr|minute)s?)/i);
         const duration = durationMatch ? durationMatch[1] : 'Unknown';
 
@@ -333,11 +337,12 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
           studyType: text.toLowerCase().includes('online') || text.toLowerCase().includes('remote') ? 'Remote' : 'In-Person',
           studyFormat: text.toLowerCase().includes('1-on-1') ? 'One-on-One' : (text.toLowerCase().includes('unmoderated') ? 'Unmoderated' : ''),
           postedAt: 'New',
-          link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : 'https://www.userinterviews.com/studies',
-          description: card.querySelector('p, [class*="description"], [class*="Summary"]')?.textContent?.trim().substring(0, 500) || '',
+          link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : `https://www.userinterviews.com/studies`,
+          description: card.querySelector('p, [class*="Description"], [class*="Summary"]')?.textContent?.trim().substring(0, 500) || '',
           pageOrder: results.length
         });
       }
+      
       return results;
     });
     
