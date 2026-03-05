@@ -284,6 +284,7 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
           const isSidebar = container.closest('[class*="Sidebar"], [class*="sidebar"], [class*="Filter"], [class*="filter"], nav, header, footer');
           
           if (hasHeading && hasPayout && !isSidebar) {
+            // STOP at the first container that looks like a card (innermost/most specific)
             card = container;
             break; 
           }
@@ -291,6 +292,10 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
         }
         
         if (!card) continue;
+        
+        // CRITICAL FIX: Use the DOM element itself to prevent picking the same card twice.
+        if (seenIds.has(card)) continue;
+        seenIds.add(card);
 
         const text = card.textContent || '';
         
