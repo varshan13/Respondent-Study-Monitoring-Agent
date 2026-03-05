@@ -257,82 +257,51 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
       const results: any[] = [];
       const seenIds = new Set();
       
-      // User Interviews study cards usually have an "Apply" button.
-      // We'll find all "Apply" buttons and then find their unique parent cards.
-      const applyElements = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(el => {
-        const text = el.textContent?.trim().toLowerCase() || '';
-        return text === 'apply' || text === 'view study' || text === 'take survey' || text.includes('apply to') || text.includes('participate');
-      });
+      // Based on HTML inspection, User Interviews uses ProjectListing__title class for titles
+      // and has specific apply buttons.
+      const listings = Array.from(document.querySelectorAll('h2[class*="ProjectListing__title"]'));
       
-      console.log(`Found ${applyElements.length} potential study action elements`);
+      console.log(`Found ${listings.length} ProjectListing title elements`);
 
-      for (let i = 0; i < applyElements.length; i++) {
-        const actionBtn = applyElements[i] as HTMLElement;
+      for (let i = 0; i < listings.length; i++) {
+        const titleEl = listings[i] as HTMLElement;
+        const title = titleEl.textContent?.trim() || 'Unknown Study';
         
-        // Find the card container by looking for a parent that contains both a heading and a payout
-        let container: HTMLElement | null = actionBtn.parentElement;
-        let card: HTMLElement | null = null;
-        
-        // Go up further to find the actual card container
-        for (let d = 0; d < 12; d++) {
-          if (!container) break;
-          
-          // Check if this container is a study card
-          const hasHeading = container.querySelector('h1, h2, h3, h4, [class*="title"], [class*="Name"], [class*="Title"]');
-          const hasPayout = container.textContent?.includes('$');
-          // Avoid sidebars, filters, and navigation
-          const isSidebar = container.closest('[class*="Sidebar"], [class*="sidebar"], [class*="Filter"], [class*="filter"], nav, header, footer');
-          
-          if (hasHeading && hasPayout && !isSidebar) {
-            // STOP at the first container that looks like a card (innermost/most specific)
-            card = container;
-            break; 
-          }
-          container = container.parentElement;
+        // Find the container for this listing by going up until we find a shared parent or a container-like element
+        let card: HTMLElement | null = titleEl.parentElement;
+        while (card && !card.textContent?.includes('$') && card.parentElement && card.parentElement.tagName !== 'BODY') {
+          card = card.parentElement;
         }
         
         if (!card) continue;
-        
-        // CRITICAL FIX: Use the DOM element itself to prevent picking the same card twice.
-        if (seenIds.has(card)) continue;
-        seenIds.add(card);
-
         const text = card.textContent || '';
+
+        // Find the specific apply link to get the ID
+        const applyLink = card.querySelector('a[href*="/projects/"]');
+        const href = applyLink?.getAttribute('href') || '';
         
-        // Find link - looking for projects or studies link
-        const linkEl = card.querySelector('a[href*="/projects/"], a[href*="/studies/"], a[href*="/s/"]');
-        const href = linkEl?.getAttribute('href') || actionBtn.getAttribute('href') || '';
-        
-        // Get unique ID from href or generate one
         let externalId = '';
         if (href) {
           const parts = href.split('/').filter(Boolean);
-          externalId = parts[parts.length - 1];
+          // ID is usually after /projects/
+          const pIdx = parts.indexOf('projects');
+          if (pIdx !== -1 && parts[pIdx + 1]) {
+            externalId = parts[pIdx + 1];
+          } else {
+            externalId = parts[parts.length - 1];
+          }
         }
         
-        if (!externalId || externalId.length < 3) {
-          const tempTitle = card.querySelector('h1, h2, h3, h4, [class*="title"]')?.textContent?.trim() || '';
-          const payoutVal = text.match(/\$\s*(\d+)/)?.[1] || '';
-          externalId = `ui-gen-${tempTitle.replace(/[^a-z0-9]/gi, '').substring(0, 20)}-${payoutVal}-${i}`;
+        if (!externalId || externalId === 'apply') {
+          externalId = `ui-gen-${title.replace(/[^a-z0-9]/gi, '').substring(0, 20)}-${i}`;
         }
         
         if (seenIds.has(externalId)) continue;
         seenIds.add(externalId);
 
-        // Find title
-        const titleEl = card.querySelector('h1, h2, h3, h4, [class*="title"], [class*="Name"], [class*="Title"]');
-        const title = titleEl?.textContent?.trim() || 'Unknown Study';
-        
-        // Skip filter headers and common UI elements
-        const lowerTitle = title.toLowerCase();
-        if (lowerTitle.includes('study format') || lowerTitle.includes('study type') || 
-            lowerTitle.includes('sign in') || lowerTitle.includes('create account') ||
-            lowerTitle.length < 3) continue;
-
         // Payout extraction
         const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
         const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1].replace(/,/g, ''))) : 0;
-        
         if (payout <= 0) continue;
 
         // Duration extraction
@@ -344,15 +313,14 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
           title,
           payout,
           duration,
-          studyType: text.toLowerCase().includes('online') || text.toLowerCase().includes('remote') || text.toLowerCase().includes('over the phone') ? 'Remote' : 'In-Person',
+          studyType: text.toLowerCase().includes('online') || text.toLowerCase().includes('remote') ? 'Remote' : 'In-Person',
           studyFormat: text.toLowerCase().includes('1-on-1') ? 'One-on-One' : (text.toLowerCase().includes('unmoderated') ? 'Unmoderated' : ''),
           postedAt: 'New',
           link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : `https://www.userinterviews.com/studies`,
-          description: card.querySelector('p, [class*="description"], [class*="Summary"], [class*="text"]')?.textContent?.trim().substring(0, 500) || '',
+          description: card.querySelector('p, [class*="description"]')?.textContent?.trim().substring(0, 500) || '',
           pageOrder: results.length
         });
         
-        // Cap at 50 studies
         if (results.length >= 50) break;
       }
       
