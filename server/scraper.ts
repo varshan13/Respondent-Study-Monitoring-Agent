@@ -299,25 +299,42 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
         if (seenIds.has(externalId)) continue;
         seenIds.add(externalId);
 
-        // Payout extraction
-        const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+        // Payout extraction - be more specific to avoid picking up duration or other numbers
+        // Match $ followed by numbers, but ensure it's not immediately followed by "MINUTES" or "HOURS"
+        const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)(?!\s*(?:min|hour|hr|minute))/i);
         const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1].replace(/,/g, ''))) : 0;
         if (payout <= 0) continue;
 
-        // Duration extraction
-        const durationMatch = text.match(/(\d+\s*(?:min|hour|hr|minute)s?)/i);
-        const duration = durationMatch ? durationMatch[1] : 'Unknown';
+        // Duration extraction - look for numbers specifically associated with time units
+        const durationMatch = text.match(/(\d+)\s*(?:min|hour|hr|minute)s?\b/i);
+        let duration = 'Unknown';
+        if (durationMatch) {
+          const unit = durationMatch[0].toLowerCase();
+          if (unit.includes('hour') || unit.includes('hr')) {
+            duration = `${durationMatch[1]} hr`;
+          } else {
+            duration = `${durationMatch[1]} min`;
+          }
+        }
+
+        // Study Format/Type extraction from badges
+        const badges = Array.from(card.querySelectorAll('[class*="badge"], [class*="Tag"], .ProjectListing__type')).map(b => b.textContent?.toLowerCase() || '');
+        const badgeText = badges.join(' ');
+        
+        const isRemote = badgeText.includes('online') || badgeText.includes('remote') || text.toLowerCase().includes('online') || text.toLowerCase().includes('remote');
+        const isUnmoderated = badgeText.includes('unmoderated') || text.toLowerCase().includes('unmoderated');
+        const isOneOnOne = badgeText.includes('1-on-1') || badgeText.includes('interview') || text.toLowerCase().includes('1-on-1') || text.toLowerCase().includes('interview');
 
         results.push({
           externalId,
           title,
           payout,
           duration,
-          studyType: text.toLowerCase().includes('online') || text.toLowerCase().includes('remote') ? 'Remote' : 'In-Person',
-          studyFormat: text.toLowerCase().includes('1-on-1') ? 'One-on-One' : (text.toLowerCase().includes('unmoderated') ? 'Unmoderated' : ''),
+          studyType: isRemote ? 'Remote' : 'In-Person',
+          studyFormat: isUnmoderated ? 'Unmoderated' : (isOneOnOne ? 'One-on-One' : ''),
           postedAt: 'New',
           link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : `https://www.userinterviews.com/studies`,
-          description: card.querySelector('p, [class*="description"]')?.textContent?.trim().substring(0, 500) || '',
+          description: card.querySelector('.ProjectListing__description, [class*="description"], p')?.textContent?.trim().substring(0, 500) || '',
           pageOrder: results.length
         });
         
