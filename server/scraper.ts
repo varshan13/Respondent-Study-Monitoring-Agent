@@ -301,36 +301,36 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
 
         // Payout and Duration extraction - specifically targeting their known layout
         // Incentive is usually at the top right, Duration is below it.
-        // We look for the incentive first ($XX)
-        const incentiveEl = card.querySelector('.ProjectListing__incentive, [class*="incentive"], [class*="Incentive"]');
-        const durationEl = card.querySelector('.ProjectListing__duration, [class*="duration"], [class*="Duration"]');
+        const incentiveEl = card.querySelector('.ProjectListing__compensation, [class*="compensation"], [class*="incentive"]');
+        const durationEl = card.querySelector('.ProjectListing__duration, [class*="duration"]');
         
         let payout = 0;
         let duration = 'Unknown';
 
         if (incentiveEl) {
-          const pMatch = incentiveEl.textContent?.match(/\d+/);
+          // Extract only the numeric part from the incentive element to avoid combining with duration
+          const pText = incentiveEl.textContent?.trim() || '';
+          const pMatch = pText.match(/\d+/);
           payout = pMatch ? parseInt(pMatch[0]) : 0;
-        } else {
-          const pMatch = text.match(/\$\s*(\d+(?:,\d{3})*)/);
-          payout = pMatch ? parseInt(pMatch[1].replace(/,/g, '')) : 0;
         }
 
         if (durationEl) {
           duration = durationEl.textContent?.trim() || 'Unknown';
-        } else {
-          // Fallback regex that avoids the payout number
-          const dMatch = text.match(/(\d+)\s*(?:min|hour|hr|minute)s?\b/i);
-          if (dMatch) {
-            duration = dMatch[0].toLowerCase().includes('hour') || dMatch[0].toLowerCase().includes('hr') ? `${dMatch[1]} hr` : `${dMatch[1]} min`;
-          }
         }
 
+        if (payout <= 0) {
+           // Fallback only if elements not found
+           const pMatch = text.match(/\$\s*(\d+)/);
+           payout = pMatch ? parseInt(pMatch[1]) : 0;
+        }
+        
         if (payout <= 0) continue;
 
         // Study Format/Type extraction from badges
-        const badges = Array.from(card.querySelectorAll('[class*="badge"], [class*="Tag"], .ProjectListing__type')).map(b => b.textContent?.toLowerCase() || '');
-        const badgeText = badges.join(' ');
+        // Looking for "Unmoderated Task", "1-on-1 Interview", etc.
+        const badgeElements = Array.from(card.querySelectorAll('[class*="badge"], [class*="Tag"], [class*="type"], .ProjectListing__type, .KyE5sOE8pRwJSJTe'));
+        const badges = badgeElements.map(b => b.textContent?.trim() || '');
+        const badgeText = badges.join(' ').toLowerCase();
         
         const isRemote = badgeText.includes('online') || badgeText.includes('remote') || text.toLowerCase().includes('online') || text.toLowerCase().includes('remote');
         const isUnmoderated = badgeText.includes('unmoderated') || text.toLowerCase().includes('unmoderated');
@@ -345,7 +345,7 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
           studyFormat: isUnmoderated ? 'Unmoderated' : (isOneOnOne ? 'One-on-One' : ''),
           postedAt: 'New',
           link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : `https://www.userinterviews.com/studies`,
-          description: card.querySelector('.ProjectListing__description, [class*="description"], p')?.textContent?.trim().substring(0, 500) || '',
+          description: card.querySelector('.ProjectListing__description, [class*="description"], [class*="Summary"], p:not([class])')?.textContent?.trim().substring(0, 500) || '',
           pageOrder: results.length
         });
         
