@@ -46,7 +46,7 @@ async function processPlatformStudies(platform: 'respondent' | 'userinterviews',
         notified: false,
       });
       newStudies.push(saved);
-      await addLog(`[${platform}] New study: "${saved.title}" ($${saved.payout})`, "success");
+      await addLog(`[${platform === 'respondent' ? 'Respondent.io' : 'User Interviews'}] New study: "${saved.title}" ($${saved.payout})`, "success");
     } else {
       await storage.updateStudy(scraped.externalId, {
         title: scraped.title,

@@ -69,7 +69,7 @@ export async function sendStudyNotification(emails: string[], studies: Study[]):
     const studyList = studies.map(study => `
       <tr style="border-bottom: 1px solid #e5e7eb;">
         <td style="padding: 16px;">
-          <h3 style="margin: 0 0 8px 0; color: #111827;">${study.title}</h3>
+          <h3 style="margin: 0 0 8px 0; color: #111827;">[${study.platform === 'respondent' ? 'Respondent.io' : 'User Interviews'}] ${study.title}</h3>
           <p style="margin: 0; color: #6b7280; font-size: 14px;">
             <strong>Payout:</strong> $${study.payout} | 
             <strong>Duration:</strong> ${study.duration} | 

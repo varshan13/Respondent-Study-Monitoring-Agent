@@ -299,23 +299,34 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
         if (seenIds.has(externalId)) continue;
         seenIds.add(externalId);
 
-        // Payout extraction - be more specific to avoid picking up duration or other numbers
-        // Match $ followed by numbers, but ensure it's not immediately followed by "MINUTES" or "HOURS"
-        const payoutMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)(?!\s*(?:min|hour|hr|minute))/i);
-        const payout = payoutMatch ? Math.round(parseFloat(payoutMatch[1].replace(/,/g, ''))) : 0;
-        if (payout <= 0) continue;
-
-        // Duration extraction - look for numbers specifically associated with time units
-        const durationMatch = text.match(/(\d+)\s*(?:min|hour|hr|minute)s?\b/i);
+        // Payout and Duration extraction - specifically targeting their known layout
+        // Incentive is usually at the top right, Duration is below it.
+        // We look for the incentive first ($XX)
+        const incentiveEl = card.querySelector('.ProjectListing__incentive, [class*="incentive"], [class*="Incentive"]');
+        const durationEl = card.querySelector('.ProjectListing__duration, [class*="duration"], [class*="Duration"]');
+        
+        let payout = 0;
         let duration = 'Unknown';
-        if (durationMatch) {
-          const unit = durationMatch[0].toLowerCase();
-          if (unit.includes('hour') || unit.includes('hr')) {
-            duration = `${durationMatch[1]} hr`;
-          } else {
-            duration = `${durationMatch[1]} min`;
+
+        if (incentiveEl) {
+          const pMatch = incentiveEl.textContent?.match(/\d+/);
+          payout = pMatch ? parseInt(pMatch[0]) : 0;
+        } else {
+          const pMatch = text.match(/\$\s*(\d+(?:,\d{3})*)/);
+          payout = pMatch ? parseInt(pMatch[1].replace(/,/g, '')) : 0;
+        }
+
+        if (durationEl) {
+          duration = durationEl.textContent?.trim() || 'Unknown';
+        } else {
+          // Fallback regex that avoids the payout number
+          const dMatch = text.match(/(\d+)\s*(?:min|hour|hr|minute)s?\b/i);
+          if (dMatch) {
+            duration = dMatch[0].toLowerCase().includes('hour') || dMatch[0].toLowerCase().includes('hr') ? `${dMatch[1]} hr` : `${dMatch[1]} min`;
           }
         }
+
+        if (payout <= 0) continue;
 
         // Study Format/Type extraction from badges
         const badges = Array.from(card.querySelectorAll('[class*="badge"], [class*="Tag"], .ProjectListing__type')).map(b => b.textContent?.toLowerCase() || '');
