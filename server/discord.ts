@@ -10,16 +10,17 @@ export async function sendDiscordNotification(studies: Study[]): Promise<boolean
 
   try {
     const studyList = studies.slice(0, 10).map(study => {
+      const platform = study.platform === 'respondent' ? 'Respondent.io' : 'User Interviews';
       const format = study.studyFormat ? ` | ${study.studyFormat}` : '';
-      return `**${study.title}**\nPayout: $${study.payout} | Duration: ${study.duration} | Type: ${study.studyType}${format}\n${study.postedAt ? `Posted: ${study.postedAt}\n` : ''}${study.link ? `[Apply Here](${study.link})` : ''}\n`;
+      return `**[${platform}] ${study.title}**\nPayout: $${study.payout} | Duration: ${study.duration} | Type: ${study.studyType}${format}\n${study.postedAt ? `Posted: ${study.postedAt}\n` : ''}${study.link ? `[Apply Here](${study.link})` : ''}\n`;
     }).join('\n');
 
     const embed = {
       title: `🔔 ${studies.length} New ${studies.length === 1 ? 'Study' : 'Studies'} Found!`,
-      description: `New research opportunities on Respondent.io:\n\n${studyList}`,
+      description: `New research opportunities:\n\n${studyList}`,
       color: 0x10b981,
       footer: {
-        text: 'Respondent.io Monitor Agent'
+        text: 'Research Monitor Agent'
       },
       timestamp: new Date().toISOString()
     };
