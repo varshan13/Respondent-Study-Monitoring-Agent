@@ -267,16 +267,14 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
         const titleEl = listings[i] as HTMLElement;
         const title = titleEl.textContent?.trim() || 'Unknown Study';
         
-        // Find the container for this listing by going up
-        let card: HTMLElement | null = titleEl.parentElement;
-        while (card && !card.textContent?.includes('$') && card.parentElement && card.parentElement.tagName !== 'BODY') {
-          card = card.parentElement;
-        }
-        
-        // If we found a card, let's try to go up one more level to capture the full container 
-        // that usually includes the description and badges
-        if (card && card.parentElement && card.parentElement.querySelector('.ProjectListing__type, [class*="type"]')) {
-          card = card.parentElement;
+        // Find the full ProjectListing section that contains all study details
+        let card: HTMLElement | null = titleEl.closest('.ProjectListing, section[class*="ProjectListing"]');
+        if (!card) {
+          // Fallback to going up the tree
+          card = titleEl.parentElement;
+          while (card && !card.textContent?.includes('$') && card.parentElement && card.parentElement.tagName !== 'BODY') {
+            card = card.parentElement;
+          }
         }
 
         if (!card) continue;
@@ -332,15 +330,18 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
         
         if (payout <= 0) continue;
 
-        // Study Format/Type extraction from badges
-        // Based on analysis, badges use specific ProjectListing__type class
-        const badgeElements = Array.from(card.querySelectorAll('.ProjectListing__type, [class*="type"], [class*="badge"], [class*="Tag"]'));
-        const badges = badgeElements.map(b => b.textContent?.trim() || '');
-        const badgeText = (badges.join(' ') + ' ' + text).toLowerCase();
+        // Study Format/Type extraction from ListingCategoryIcons__name spans
+        const badgeElements = Array.from(card.querySelectorAll('.ListingCategoryIcons__name'));
+        const badges = badgeElements.map(b => b.textContent?.trim() || '').filter(b => b.length > 0);
+        const badgeText = badges.join(' ').toLowerCase();
         
         const isRemote = badgeText.includes('online') || badgeText.includes('remote');
         const isUnmoderated = badgeText.includes('unmoderated');
         const isOneOnOne = badgeText.includes('1-on-1') || badgeText.includes('interview');
+
+        // Extract description from the ProjectListing__description element
+        const descriptionEl = card.querySelector('.ProjectListing__description');
+        const description = descriptionEl?.textContent?.trim().substring(0, 500) || '';
 
         results.push({
           externalId,
@@ -351,7 +352,7 @@ export async function scrapeUserInterviewsStudies(): Promise<ScrapedStudy[]> {
           studyFormat: isUnmoderated ? 'Unmoderated' : (isOneOnOne ? 'One-on-One' : ''),
           postedAt: 'New',
           link: href ? (href.startsWith('http') ? href : `https://www.userinterviews.com${href}`) : `https://www.userinterviews.com/studies`,
-          description: card.querySelector('.ProjectListing__description, [class*="description"], [class*="Summary"], p:not([class*="requirement"])')?.textContent?.trim().substring(0, 500) || '',
+          description,
           pageOrder: results.length
         });
         
